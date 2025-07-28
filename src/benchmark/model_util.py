@@ -55,9 +55,10 @@ def extract_opera_feature(sound_dir_loc, pretrain="operaCE", input_sec=8, from_s
     model.load_state_dict(ckpt["state_dict"], strict=False)
 
     opera_features = []
+    print(sound_dir_loc)
 
     for audio_file in tqdm(sound_dir_loc):
-
+        print(audio_file)
         if MAE:
             if from_spec:
                 data = [audio_file[i: i+256] for i in range(0, len(audio_file), 256)]

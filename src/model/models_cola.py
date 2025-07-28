@@ -4,7 +4,7 @@ from efficientnet_pytorch import EfficientNet
 from torch.nn import functional as F
 import numpy as np
 from src.model.htsat.htsat import HTSATWrapper
-import random 
+import random
 
 
 class Encoder(torch.nn.Module):
@@ -16,13 +16,44 @@ class Encoder(torch.nn.Module):
             "efficientnet-b0", include_top=False, drop_connect_rate=drop_connect_rate
         )
 
+        # # Try alternative approach to loading EfficientNet
+        # try:
+        #     self.efficientnet = EfficientNet.from_pretrained(
+        #         "efficientnet-b0", include_top=False, drop_connect_rate=drop_connect_rate
+        #     )
+        # except (AssertionError, KeyError) as e:
+        #     print(f"Warning: Failed to load pretrained weights with include_top=False: {e}")
+        #     print("Loading with include_top=True and removing classifier manually...")
+        #
+        #     # Load with classifier and remove it manually
+        #     self.efficientnet = EfficientNet.from_pretrained(
+        #         "efficientnet-b0", include_top=True, drop_connect_rate=drop_connect_rate
+        #     )
+        #     # Remove the final classification layer
+        #     self.efficientnet._fc = torch.nn.Identity()
+
     def forward(self, x):
         x = x.unsqueeze(1)
 
         x = self.cnn1(x)
         x = self.efficientnet(x)
 
-        y = x.squeeze(3).squeeze(2)
+        # Debug: print tensor shape
+        # print(f"EfficientNet output shape: {x.shape}")
+
+        # Handle different output shapes more robustly
+        if len(x.shape) == 4 and x.shape[2] == 1 and x.shape[3] == 1:
+            # Expected case: [batch, channels, 1, 1]
+            y = x.squeeze(3).squeeze(2)
+        elif len(x.shape) == 4:
+            # If spatial dimensions are not 1x1, use adaptive pooling
+            y = F.adaptive_avg_pool2d(x, (1, 1)).squeeze(3).squeeze(2)
+        elif len(x.shape) == 2:
+            # Already flattened
+            y = x
+        else:
+            # Flatten to 2D
+            y = x.view(x.size(0), -1)
 
         return y
 
@@ -32,7 +63,7 @@ class EncoderHTSAT(torch.nn.Module):
         super(EncoderHTSAT, self).__init__()
         self.encoder = HTSATWrapper()
         self.out_emb = 768
-        
+
     def forward(self, x):
         x = x.unsqueeze(1)
         y = self.encoder(x)
@@ -41,7 +72,16 @@ class EncoderHTSAT(torch.nn.Module):
 
 
 class Cola(pl.LightningModule):
-    def __init__(self, p=0.1, dim_fea=1280, dim_hidden=1280, dim_out=512, encoder="efficientnet", max_len=251, out_emb=2048):
+    def __init__(
+        self,
+        p=0.1,
+        dim_fea=1280,
+        dim_hidden=1280,
+        dim_out=512,
+        encoder="efficientnet",
+        max_len=251,
+        out_emb=2048,
+    ):
         super().__init__()
         self.save_hyperparameters()
 
@@ -55,10 +95,11 @@ class Cola(pl.LightningModule):
         elif encoder == "htsat":
             self.encoder = EncoderHTSAT()
             self.dim_fea = self.encoder.out_emb
-            if dim_hidden > self.dim_fea : self.dim_hidden = self.dim_fea
+            if dim_hidden > self.dim_fea:
+                self.dim_hidden = self.dim_fea
         self.encoder_model = encoder
 
-        self.middle_enabled = (self.dim_fea != self.dim_hidden)
+        self.middle_enabled = self.dim_fea != self.dim_hidden
         if self.middle_enabled:
             self.middle = torch.nn.Linear(self.dim_fea, self.dim_hidden)
 
@@ -103,7 +144,6 @@ class Cola(pl.LightningModule):
             return x
         raise NotImplementedError
 
-    
     def training_step(self, x, batch_idx):
         x1, x2 = self(x)
 
@@ -156,7 +196,18 @@ class Cola(pl.LightningModule):
 
 
 class ColaMD(pl.LightningModule):
-    def __init__(self, p=0.1, dim_fea=1280, dim_hidden=1280, dim_out=512, encoder="efficientnet", batch_size=128, num_batch=[258.0, 288, 4, 51, 75, 146, 138], out_emb=2048, max_len=251):
+    def __init__(
+        self,
+        p=0.1,
+        dim_fea=1280,
+        dim_hidden=1280,
+        dim_out=512,
+        encoder="efficientnet",
+        batch_size=128,
+        num_batch=[258.0, 288, 4, 51, 75, 146, 138],
+        out_emb=2048,
+        max_len=251,
+    ):
         super().__init__()
         self.save_hyperparameters()
 
@@ -171,13 +222,14 @@ class ColaMD(pl.LightningModule):
         elif encoder == "htsat":
             self.encoder = EncoderHTSAT()
             self.dim_fea = self.encoder.out_emb
-            if dim_hidden > self.dim_fea : self.dim_hidden = self.dim_fea
+            if dim_hidden > self.dim_fea:
+                self.dim_hidden = self.dim_fea
         self.encoder_model = encoder
         print(num_batch)
-        self.num_batch = [b/np.sum(num_batch) for b in num_batch]
+        self.num_batch = [b / np.sum(num_batch) for b in num_batch]
         print(self.num_batch)
 
-        self.middle_enabled = (self.dim_fea != self.dim_hidden)
+        self.middle_enabled = self.dim_fea != self.dim_hidden
         if self.middle_enabled:
             self.middle = torch.nn.Linear(self.dim_fea, self.dim_hidden)
 
@@ -219,7 +271,7 @@ class ColaMD(pl.LightningModule):
         if dim == self.dim_out:
             return x
         raise NotImplementedError
-    
+
     def _calculate_loss(self, x, batch_idx, mode):
         x1, x2 = self(x)
 
@@ -235,7 +287,7 @@ class ColaMD(pl.LightningModule):
         self.log("{}_loss".format(mode), loss, batch_size=self.batch_size)
         self.log("{}_acc".format(mode), acc, batch_size=self.batch_size)
         return loss
-    
+
     def training_step(self, x, batch_idx):
         """
         covidbreath Length of Training, Validation, Testing: 258 29 29
@@ -249,14 +301,14 @@ class ColaMD(pl.LightningModule):
 
         batch, batch_idx, dataloader_idx = x
         lst = range(len(batch))
-        
+
         s = random.choices(lst, weights=self.num_batch, k=1)[0]
         loss = self._calculate_loss(batch[s], batch_idx, "train" + str(s))
         return loss
 
     def validation_step(self, x, batch_idx, dataloader_idx=0):
         batch, batch_idx, dataloader_idx = x
-        
+
         self._calculate_loss(batch, batch_idx, "valid")
 
     def test_step(self, x, batch_idx):
@@ -271,7 +323,6 @@ def weights_init(network):
     for m in network:
         classname = m.__class__.__name__
         # print(classname)
-        if classname.find('Linear') != -1:
+        if classname.find("Linear") != -1:
             m.weight.data.normal_(mean=0.0, std=0.01)
             m.bias.data.zero_()
-
