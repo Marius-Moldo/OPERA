@@ -13,9 +13,9 @@ def cdf(data):
 
 
 # Load the data from the CSV file
-df = pd.read_csv(
-    'F:\SSL\RespSounds\datasets\coughvid\public_dataset\metadata_compiled.csv')
-# df = pd.read_csv('datasets\coughvid\public_dataset\metadata_compiled.csv')
+#df = pd.read_csv(
+#    'F:\SSL\RespSounds\datasets\coughvid\public_dataset\metadata_compiled.csv')
+df = pd.read_csv('datasets/coughvid/public_dataset/metadata_compiled.csv')
 
 # cough_detected = df['cough_detected'].tolist()
 

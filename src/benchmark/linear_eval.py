@@ -224,6 +224,83 @@ def linear_evaluation_icbhidisease(use_feature="opensmile", l2_strength=1e-4, ep
     return auc
 
 
+def linear_evaluation_coughCOPD(use_feature="opensmile", l2_strength=1e-4, epochs=64, batch_size=64, lr=1e-4,
+                                   head="linear"):
+    print("*" * 48)
+    print("training dataset cough_copd disease using feature extracted by " + use_feature, "with l2_strength", l2_strength,
+          "lr", lr, "head", head)
+
+    feature_dir = "feature/coughCOPD_eval/"
+    y_set = np.load(feature_dir + "split.npy")
+    y_label = np.load(feature_dir + "labels.npy")
+    print(y_label)
+    print(collections.Counter(y_label))
+    x_data = np.load(feature_dir + use_feature + "_feature.npy").squeeze()
+
+
+    if use_feature == "vggish":
+        x_data = np.nan_to_num(x_data)
+    feat_dim = x_data.shape[1]
+
+    X_train, X_test, y_train, y_test = train_test_split_from_list(x_data, y_label, y_set)
+
+    X_train, X_val, y_train, y_val = train_test_split(
+        X_train, y_train, test_size=0.2, random_state=1337, stratify=y_train
+    )
+    print(collections.Counter(y_train))
+    print(collections.Counter(y_val))
+    print(collections.Counter(y_test))
+
+    train_data = FeatureDataset((X_train, y_train))
+    test_data = FeatureDataset((X_test, y_test))
+    val_data = FeatureDataset((X_val, y_val))
+
+    train_loader = DataLoader(
+        train_data, batch_size=batch_size, num_workers=2, shuffle=True
+    )
+    val_loader = DataLoader(
+        val_data, batch_size=batch_size, num_workers=2, shuffle=True
+    )
+    test_loader = DataLoader(
+        test_data, batch_size=batch_size, shuffle=True, num_workers=2
+    )
+    loss_func = None
+
+    model = LinearHead(feat_dim=feat_dim, classes=2, l2_strength=l2_strength, loss_func=loss_func, head=head)
+
+    logger = CSVLogger(
+        save_dir="cks/logs", name="icbhidisease",
+        version="_".join([head, use_feature, str(batch_size), str(lr), str(epochs), str(l2_strength)])
+    )
+
+    checkpoint_callback = ModelCheckpoint(
+        monitor="valid_auc", mode="max", dirpath="cks/linear/icbhidisease/",
+        filename="_".join([head, use_feature, str(batch_size), str(lr), str(epochs),
+                           str(l2_strength)]) + "-{epoch:02d}-{valid_auc:.2f}"
+    )
+
+    trainer = pl.Trainer(
+        max_epochs=epochs,
+        accelerator="gpu",
+        devices=1,
+        # logger=logger,
+        logger=False,
+        callbacks=[DecayLearningRate(), checkpoint_callback],
+        gradient_clip_val=1.0,
+        log_every_n_steps=1,
+        enable_progress_bar=False
+    )
+    trainer.fit(model, train_loader, val_loader)
+
+    trainer.test(dataloaders=train_loader)
+    trainer.test(dataloaders=val_loader)
+    test_res = trainer.test(dataloaders=test_loader)
+    auc = test_res[0]["test_auc"]
+    print("finished training dataset icbhi disease using feature extracted by " + use_feature, "with l2_strength",
+          l2_strength, "lr", lr)
+    return auc
+
+
 def linear_evaluation_kauh(use_feature="opensmile", l2_strength=1e-6, epochs=64, lr=1e-5, batch_size=64, head="linear"):
     print("*" * 48)
     print("training dataset kauh using feature extracted by " + use_feature, "with l2_strength", l2_strength, "lr", lr, "head", head)
@@ -899,6 +976,8 @@ if __name__ == "__main__":
             torch.manual_seed(seed)
             torch.cuda.manual_seed(seed)
 
+            if args.task == "coughCOPD":
+                auc = linear_evaluation_coughCOPD(use_feature=feature, epochs=64, batch_size=32, l2_strength=args.l2_strength, lr=args.lr, head=args.head)
             if args.task == "covid19sounds":
                 auc = linear_evaluation_covid19sounds(1, feature, modality=args.modality, l2_strength=args.l2_strength, lr=args.lr, head=args.head)
             elif args.task == "icbhidisease":

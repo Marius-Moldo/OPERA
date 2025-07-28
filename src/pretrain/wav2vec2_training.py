@@ -3,107 +3,15 @@ import argparse
 import numpy as np
 import pytorch_lightning as pl
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
+import librosa
+from transformers import Wav2Vec2ForPreTraining, Wav2Vec2FeatureExtractor, Wav2Vec2Config
+from transformers.models.wav2vec2.modeling_wav2vec2 import _compute_mask_indices, _sample_negative_indices
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import CSVLogger
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
-from lightning.pytorch.utilities import CombinedLoader
-import torchaudio
-import librosa
-from transformers import (
-    Wav2Vec2Model,
-    Wav2Vec2Config,
-    Wav2Vec2ForPreTraining,
-    Wav2Vec2FeatureExtractor,
-)
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Union, Tuple
-import random
-import warnings
 
-warnings.filterwarnings("ignore", category=UserWarning)
-
-
-def _compute_mask_indices(
-    shape: Tuple[int, int],
-    mask_prob: float,
-    mask_length: int,
-    attention_mask: Optional[torch.Tensor] = None,
-    min_masks: int = 0,
-) -> np.ndarray:
-    """
-    Computes random mask spans for a given shape. Used to implement SpecAugment for wav2vec2 pretraining.
-    """
-    batch_size, sequence_length = shape
-
-    if mask_length < 1:
-        raise ValueError("`mask_length` has to be bigger than 0.")
-
-    if mask_length > sequence_length:
-        raise ValueError(
-            f"`mask_length` has to be smaller than `sequence_length`, but got `mask_length`: {mask_length} and `sequence_length`: {sequence_length}`"
-        )
-
-    # compute number of masked spans in batch
-    num_masked_spans = int(mask_prob * sequence_length / mask_length + random.random())
-    num_masked_spans = max(num_masked_spans, min_masks)
-
-    # make sure num masked indices <= sequence_length
-    if num_masked_spans * mask_length > sequence_length:
-        num_masked_spans = sequence_length // mask_length
-
-    # SpecAugment mask to fill
-    mask = np.zeros((batch_size, sequence_length), dtype=bool)
-
-    for i in range(batch_size):
-        # randomly choose indices to mask
-        spec_aug_mask_idx = np.random.choice(
-            np.arange(sequence_length - (mask_length - 1)),
-            num_masked_spans,
-            replace=False,
-        )
-
-        # fill mask
-        for j in spec_aug_mask_idx:
-            mask[i, j : j + mask_length] = True
-
-    return mask
-
-
-@dataclass
-class DataCollatorForWav2Vec2Pretraining:
-    """
-    Data collator that will dynamically pad the inputs for multiple choice received.
-    """
-
-    feature_extractor: Wav2Vec2FeatureExtractor
-    padding: Union[bool, str] = True
-    max_length: Optional[int] = None
-    pad_to_multiple_of: Optional[int] = None
-
-    def __call__(
-        self, features: List[Dict[str, Union[List[int], torch.Tensor]]]
-    ) -> Dict[str, torch.Tensor]:
-        # Split inputs and labels since they have to be of different lengths
-        input_features = [
-            {"input_values": feature["input_values"]} for feature in features
-        ]
-
-        batch = self.feature_extractor.pad(
-            input_features,
-            padding=self.padding,
-            max_length=self.max_length,
-            pad_to_multiple_of=self.pad_to_multiple_of,
-            return_tensors="pt",
-        )
-
-        # Ensure we have attention_mask
-        if "attention_mask" not in batch:
-            batch["attention_mask"] = torch.ones_like(batch["input_values"])
-
-        return batch
+from src.benchmark.baseline.vggish.mel_features import log_mel_spectrogram
 
 
 class Wav2VecDataset(torch.utils.data.Dataset):
@@ -111,31 +19,18 @@ class Wav2VecDataset(torch.utils.data.Dataset):
         self.audio_paths = audio_paths
         self.target_sr = target_sr
         self.max_len = target_sr * max_duration_s
-        # Filter out non-existent files
-        self.valid_paths = []
-        for path in audio_paths:
-            if os.path.exists(path) or os.path.exists(path.replace(".npy", ".wav")):
-                self.valid_paths.append(path)
-        if len(self.valid_paths) < len(audio_paths):
-            print(
-                f"Warning: {len(audio_paths) - len(self.valid_paths)} files not found, using {len(self.valid_paths)} valid files"
-            )
-        self.audio_paths = self.valid_paths if self.valid_paths else audio_paths
 
     def __len__(self):
         return len(self.audio_paths)
 
     def __getitem__(self, idx):
         audio_path = self.audio_paths[idx]
-
-        # Try to load actual audio file
         waveform, sr = librosa.load(audio_path, sr=self.target_sr, mono=True)
 
         # Trim or pad to max length
         if len(waveform) > self.max_len:
-            # Random crop for augmentation
             start_idx = np.random.randint(0, len(waveform) - self.max_len + 1)
-            waveform = waveform[start_idx : start_idx + self.max_len]
+            waveform = waveform[start_idx: start_idx + self.max_len]
         else:
             padding_needed = self.max_len - len(waveform)
             waveform = np.pad(waveform, (0, padding_needed), mode="constant")
@@ -143,198 +38,142 @@ class Wav2VecDataset(torch.utils.data.Dataset):
         return {"input_values": waveform.astype(np.float32)}
 
 
-class Wav2Vec2PretrainingModel(pl.LightningModule):
-    def __init__(
-        self,
-        model_name_or_path: str = "facebook/wav2vec2-base",
-        learning_rate: float = 5e-5,
-        weight_decay: float = 0.01,
-        warmup_steps: int = 1000,
-        mask_time_prob: float = 0.05,
-        mask_time_length: int = 10,
-        num_negatives: int = 100,
-        codevector_dim: int = 256,
-        num_codevector_groups: int = 2,
-        num_codevectors_per_group: int = 320,
-    ):
-        super().__init__()
-        self.save_hyperparameters()
+class DataCollatorForWav2Vec2Pretraining:
+    """
+    Data collator that will dynamically pad the inputs received and prepare masked indices
+    for self-supervised pretraining.
+    """
 
-        # Initialize config
-        config = Wav2Vec2Config(
-            mask_time_prob=mask_time_prob,
-            mask_time_length=mask_time_length,
-            num_negatives=num_negatives,
-            codevector_dim=codevector_dim,
-            num_codevector_groups=num_codevector_groups,
-            num_codevectors_per_group=num_codevectors_per_group,
-            do_stable_layer_norm=True,
-            feat_extract_norm="layer",
-            # Add these to ensure contrastive learning works
-            contrastive_logits_temperature=0.1,
-            diversity_loss_weight=0.1,
-            proj_codevector_dim=codevector_dim,
-            tdnn_dim=[512, 512, 512, 512, 1500],
-            tdnn_kernel=[5, 3, 3, 1, 1],
-            tdnn_dilation=[1, 2, 3, 1, 1],
-            # Ensure feature extractor config is proper
-            conv_dim=[512, 512, 512, 512, 512, 512, 512],
-            conv_kernel=[10, 3, 3, 3, 3, 2, 2],
-            conv_stride=[5, 2, 2, 2, 2, 2, 2],
+    def __init__(self, model, feature_extractor, padding="longest", pad_to_multiple_of=None):
+        self.model = model
+        self.feature_extractor = feature_extractor
+        self.padding = padding
+        self.pad_to_multiple_of = pad_to_multiple_of
+
+    def __call__(self, features):
+        # Reformat list to dict and set to pytorch format
+        batch = self.feature_extractor.pad(
+            features,
+            padding=self.padding,
+            pad_to_multiple_of=self.pad_to_multiple_of,
+            return_tensors="pt",
         )
 
-        # Initialize model for pretraining
-        self.model = Wav2Vec2ForPreTraining(config)
+        device = batch["input_values"].device
+        batch_size = batch["input_values"].shape[0]
 
-        # Feature extractor for preprocessing
-        self.feature_extractor = Wav2Vec2FeatureExtractor(
-            feature_size=1,
-            sampling_rate=16000,
-            padding_value=0.0,
-            return_attention_mask=True,
-            do_normalize=True,
+        mask_indices_seq_length = self.model._get_feat_extract_output_lengths(batch["input_values"].shape[-1])
+        # Make sure masked sequence length is a Python scalar
+        mask_indices_seq_length = int(mask_indices_seq_length)
+
+        # Make sure that no loss is computed on padded inputs
+        if batch.get("attention_mask") is not None:
+            # Compute real output lengths according to convolution formula
+            batch["sub_attention_mask"] = self.model._get_feature_vector_attention_mask(
+                mask_indices_seq_length, batch["attention_mask"]
+            )
+
+        features_shape = (batch_size, mask_indices_seq_length)
+
+        # Sample randomly masked indices
+        mask_time_indices = _compute_mask_indices(
+            features_shape,
+            self.model.config.mask_time_prob,
+            self.model.config.mask_time_length,
+            attention_mask=batch.get("sub_attention_mask")
         )
 
-        # Ensure the model is in training mode for pretraining
-        self.model.train()
-
-    def _get_feat_extract_output_lengths(
-        self, input_lengths: Union[torch.LongTensor, int]
-    ):
-        """
-        Computes the output length of the convolutional feature extractor
-        """
-
-        def _conv_out_length(input_length, kernel_size, stride):
-            return (input_length - kernel_size) // stride + 1
-
-        for kernel_size, stride in zip(
-            self.model.config.conv_kernel, self.model.config.conv_stride
-        ):
-            input_lengths = _conv_out_length(input_lengths, kernel_size, stride)
-
-        return input_lengths
-
-    def forward(self, input_values, attention_mask=None):
-        # Ensure input has batch dimension
-        if input_values.dim() == 1:
-            input_values = input_values.unsqueeze(0)
-
-        # The model needs proper masking for pretraining
-        batch_size, raw_sequence_length = input_values.size()
-
-        # Compute the sequence length after convolutional layers
-        sequence_length = self._get_feat_extract_output_lengths(raw_sequence_length)
-
-        # Debug print
-        if hasattr(self, "_debug_printed") and not self._debug_printed:
-            print(
-                f"Debug - Raw sequence length: {raw_sequence_length}, Feature sequence length: {sequence_length}"
-            )
-            self._debug_printed = True
-
-        # Create mask_time_indices for the model with the correct sequence length
-        # Make sure sequence_length is an integer
-        if isinstance(sequence_length, torch.Tensor):
-            sequence_length = int(sequence_length.item())
-
-        # Only create mask if sequence length is valid
-        if sequence_length > self.hparams.mask_time_length:
-            mask_time_indices = _compute_mask_indices(
-                (
-                    batch_size,
-                    sequence_length,
-                ),  # Use feature sequence length, not raw sequence length
-                mask_prob=self.hparams.mask_time_prob,
-                mask_length=self.hparams.mask_time_length,
-            )
-            mask_time_indices = torch.tensor(
-                mask_time_indices, dtype=torch.bool, device=input_values.device
-            )
-        else:
-            # If sequence is too short, don't mask
-            mask_time_indices = None
-            print(
-                f"Warning: Sequence length {sequence_length} is too short for masking with length {self.hparams.mask_time_length}"
-            )
-
-        # Also update attention mask if provided to match feature sequence length
-        if attention_mask is not None:
-            # Compute which positions in the feature sequence are padded
-            attention_mask = self._get_feature_vector_attention_mask(
-                sequence_length, attention_mask
-            )
-
-        return self.model(
-            input_values=input_values,
-            attention_mask=attention_mask,
+        # Sample negative indices
+        sampled_negative_indices = _sample_negative_indices(
+            features_shape,
+            self.model.config.num_negatives,
             mask_time_indices=mask_time_indices,
         )
 
-    def _get_feature_vector_attention_mask(
-        self, feature_vector_length: int, attention_mask: torch.LongTensor
-    ):
-        """
-        Computes the attention mask for the feature vectors
-        """
-        # Basically, the convolutional layers downsample the input by a factor of 160
-        # So we need to take every 160th position from the attention mask
-        # This is a simplified version - you might need to adjust based on your specific model config
+        batch["mask_time_indices"] = torch.tensor(mask_time_indices, dtype=torch.long, device=device)
+        batch["sampled_negative_indices"] = torch.tensor(sampled_negative_indices, dtype=torch.long, device=device)
 
-        output_lengths = self._get_feat_extract_output_lengths(
-            attention_mask.sum(-1)
-        ).to(torch.long)
-        batch_size = attention_mask.shape[0]
+        return batch
 
-        attention_mask = torch.zeros(
-            (batch_size, feature_vector_length),
-            dtype=attention_mask.dtype,
-            device=attention_mask.device,
+
+class Wav2Vec2PretrainingModel(pl.LightningModule):
+    def __init__(self, learning_rate: float = 5e-5):
+        super().__init__()
+        self.save_hyperparameters()
+
+        config = Wav2Vec2Config.from_pretrained("facebook/wav2vec2-base")
+
+        # Important: Configure masking for contrastive loss
+        config.mask_time_prob = 0.05  # Probability of masking a time step
+        config.mask_time_length = 10  # Length of each mask
+        config.mask_feature_prob = 0.0  # Start with feature masking disabled
+        config.contrastive_logits_temperature = 0.1
+        config.diversity_loss_weight = 0.1
+        config.num_negatives = 100  # Number of negative samples for contrastive loss
+        config.do_stable_layer_norm = True
+        config.feat_extract_norm = "group"
+
+        self.model = Wav2Vec2ForPreTraining(config)
+        self.feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained("facebook/wav2vec2-base")
+
+        # Create data collator
+        self.data_collator = DataCollatorForWav2Vec2Pretraining(
+            model=self.model,
+            feature_extractor=self.feature_extractor,
+            pad_to_multiple_of=None
         )
-        # these two operations makes sure that all values before the output lengths idxs are attended to
-        attention_mask[
-            (
-                torch.arange(attention_mask.shape[0], device=attention_mask.device),
-                output_lengths - 1,
-            )
-        ] = 1
-        attention_mask = attention_mask.flip([-1]).cumsum(-1).flip([-1]).bool()
-        return attention_mask
+
+        # For Gumbel temperature scheduling
+        self.max_gumbel_temperature = 2.0
+        self.min_gumbel_temperature = 0.5
+        self.gumbel_temperature_decay = 0.999995
+
+        # Store config for mask computation
+        self.config = config
+
+    def forward(self, input_values, mask_time_indices=None, sampled_negative_indices=None, attention_mask=None):
+        return self.model(
+            input_values=input_values,
+            mask_time_indices=mask_time_indices,
+            sampled_negative_indices=sampled_negative_indices,
+            attention_mask=attention_mask
+        )
 
     def training_step(self, batch, batch_idx):
+        # Forward pass with mask
         outputs = self.forward(**batch)
-        print(outputs)
-        # For wav2vec2 pretraining, we need to handle the loss components
         loss = outputs.loss
 
-        # If loss is None, there might be an issue with the batch
-        if loss is None:
-            # Check if we have the loss components
-            if (
-                hasattr(outputs, "contrastive_loss")
-                and outputs.contrastive_loss is not None
-            ):
-                loss = outputs.contrastive_loss
-                if (
-                    hasattr(outputs, "diversity_loss")
-                    and outputs.diversity_loss is not None
-                ):
-                    loss = loss + outputs.diversity_loss
-            else:
-                print(f"Warning: No loss computed at batch {batch_idx}")
-                # Skip this batch by returning None
-                return None
+        print(loss)
 
+        # Update Gumbel temperature
+        gumbel_temperature = max(
+            self.max_gumbel_temperature * self.gumbel_temperature_decay ** self.global_step,
+            self.min_gumbel_temperature,
+        )
+        self.model.set_gumbel_temperature(gumbel_temperature)
+
+        # Calculate additional metrics
+        with torch.no_grad():
+            # Compute cosine similarity for masked positions
+            cosine_sim = torch.cosine_similarity(
+                outputs.projected_states,
+                outputs.projected_quantized_states,
+                dim=-1
+            )
+            cosine_sim = cosine_sim[batch["mask_time_indices"].bool()].mean()
+
+            # Calculate percent masked
+            percent_masked = batch["mask_time_indices"].sum() / batch["mask_time_indices"].numel()
+
+        # Log metrics
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
-
-        # Log additional metrics if available
-        if (
-            hasattr(outputs, "contrastive_loss")
-            and outputs.contrastive_loss is not None
-        ):
-            self.log("train_contrastive_loss", outputs.contrastive_loss, on_step=True)
-        if hasattr(outputs, "diversity_loss") and outputs.diversity_loss is not None:
-            self.log("train_diversity_loss", outputs.diversity_loss, on_step=True)
+        self.log("train_contrastive_loss", outputs.contrastive_loss, on_step=True)
+        self.log("train_diversity_loss", outputs.diversity_loss, on_step=True)
+        self.log("train_cosine_sim", cosine_sim * 100, on_step=True)
+        self.log("train_perplexity", outputs.codevector_perplexity, on_step=True)
+        self.log("gumbel_temperature", gumbel_temperature, on_step=True)
+        self.log("percent_masked", percent_masked, on_step=True)
 
         return loss
 
@@ -342,12 +181,20 @@ class Wav2Vec2PretrainingModel(pl.LightningModule):
         outputs = self.forward(**batch)
         loss = outputs.loss
 
-        # Check if loss is None
-        if loss is None:
-            print(f"Warning: Validation loss is None at batch {batch_idx}")
-            return
+        # Calculate metrics
+        with torch.no_grad():
+            cosine_sim = torch.cosine_similarity(
+                outputs.projected_states,
+                outputs.projected_quantized_states,
+                dim=-1
+            )
+            cosine_sim = cosine_sim[batch["mask_time_indices"].bool()].mean()
 
-        self.log("val_loss", loss, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log("val_loss", loss, on_epoch=True, prog_bar=True)
+        self.log("val_contrastive_loss", outputs.contrastive_loss, on_epoch=True)
+        self.log("val_diversity_loss", outputs.diversity_loss, on_epoch=True)
+        self.log("val_cosine_sim", cosine_sim * 100, on_epoch=True)
+        self.log("val_perplexity", outputs.codevector_perplexity, on_epoch=True)
 
         return loss
 
@@ -355,16 +202,19 @@ class Wav2Vec2PretrainingModel(pl.LightningModule):
         optimizer = torch.optim.AdamW(
             self.parameters(),
             lr=self.hparams.learning_rate,
-            weight_decay=self.hparams.weight_decay,
+            betas=(0.9, 0.999),
+            eps=1e-8,
+            weight_decay=0.01
         )
 
-        # Linear warmup scheduler
-        def lr_lambda(current_step: int):
-            if current_step < self.hparams.warmup_steps:
-                return float(current_step) / float(max(1, self.hparams.warmup_steps))
-            return 1.0
-
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+        # Add learning rate scheduler with warmup
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer,
+            max_lr=self.hparams.learning_rate,
+            total_steps=self.trainer.estimated_stepping_batches,
+            pct_start=0.08,  # 8% warmup
+            anneal_strategy='linear'
+        )
 
         return {
             "optimizer": optimizer,
@@ -372,154 +222,80 @@ class Wav2Vec2PretrainingModel(pl.LightningModule):
                 "scheduler": scheduler,
                 "interval": "step",
                 "frequency": 1,
-            },
+            }
         }
 
-    def extract_features(self, input_values):
-        """Extract features from audio for downstream tasks"""
-        with torch.no_grad():
-            outputs = self.model.wav2vec2(
-                input_values=input_values,
-            )
-            features = outputs.last_hidden_state
-        return features
 
-
-class CombinedWav2VecDataset(torch.utils.data.Dataset):
-    """Dataset that combines multiple datasets with proper indexing"""
-
-    def __init__(self, datasets, dataset_names):
-        self.datasets = datasets
-        self.dataset_names = dataset_names
-        self.dataset_lengths = [len(d) for d in datasets]
-        self.cumulative_lengths = np.cumsum([0] + self.dataset_lengths)
-        self.total_length = sum(self.dataset_lengths)
-
-    def __len__(self):
-        return self.total_length
-
-    def __getitem__(self, idx):
-        # Find which dataset this index belongs to
-        dataset_idx = np.searchsorted(self.cumulative_lengths[1:], idx, side="right")
-        local_idx = idx - self.cumulative_lengths[dataset_idx]
-
-        item = self.datasets[dataset_idx][local_idx]
-        return item
-
-
-def train_wav2vec2(
-    title: str,
-    data_source: Dict[str, int],
-    n_epochs: int = 100,
-    batch_size: int = 32,
-    learning_rate: float = 5e-5,
-):
+def train_wav2vec2(title: str, data_source: dict, n_epochs: int = 100,
+                   batch_size: int = 16, learning_rate: float = 5e-5):
     """Main training function for Wav2Vec2"""
 
     print(f"Training Wav2Vec2 with data sources: {data_source}")
 
-    # Disable CUDNN for conv1d to avoid the warning
-    torch.backends.cudnn.enabled = False
-
-    # Create datasets
-    train_datasets = []
-    val_datasets = []
-    dataset_names = []
+    # Collect all audio files
+    all_files = []
 
     for dt, max_duration in data_source.items():
         print(f"Loading {dt} dataset...")
 
         if dt in ["covidbreath", "covidcough"]:
             modality = dt[5:]
-            filenames = list(
-                np.load(
-                    f"datasets/covid19-sounds/SSL_entireaudio_filenames_{modality}.npy"
-                )
-            )
+            filenames = list(np.load(f"datasets/covid19-sounds/SSL_entireaudio_filenames_{modality}.npy"))
         elif dt == "icbhi":
             icbhi_filenames = np.load("datasets/icbhi/entire_spec_filenames.npy")
             train_test = np.load("datasets/icbhi/entire_spec_split.npy")
             filenames = list(icbhi_filenames[train_test == "train"])
         elif dt == "coughvid":
-            filenames = list(
-                np.load("datasets/coughvid/entire_wav_cough_filenames.npy")
-            )
+            filenames = list(np.load("datasets/coughvid/entire_wav_cough_filenames.npy"))
         elif dt == "hf_lung":
             filenames = list(np.load("datasets/hf_lung/entire_spec_filenames.npy"))
         elif dt == "covidUKexhalation":
-            filenames = list(
-                np.load("datasets/covidUK/entire_exhalation_filenames.npy")
-            )
+            filenames = list(np.load("datasets/covidUK/entire_exhalation_filenames.npy"))
         elif dt == "covidUKcough":
             filenames = list(np.load("datasets/covidUK/entire_wav_cough_filenames.npy"))
         else:
             continue
 
-        # Split data
-        train_files, val_files = train_test_split(
-            filenames, test_size=0.1, random_state=1337
-        )
+        all_files.extend(filenames)
+        print(f"{dt}: {len(filenames)} files")
 
-        # Create datasets
-        train_dataset = Wav2VecDataset(
-            train_files, target_sr=16000, max_duration_s=max_duration
-        )
-        val_dataset = Wav2VecDataset(
-            val_files, target_sr=16000, max_duration_s=max_duration
-        )
+    # Split data
+    train_files, val_files = train_test_split(all_files, test_size=0.1, random_state=1337)
 
-        train_datasets.append(train_dataset)
-        val_datasets.append(val_dataset)
-        dataset_names.append(dt)
-
-        print(f"{dt}: {len(train_dataset)} train, {len(val_dataset)} val samples")
-
-    # Combine datasets
-    combined_train = CombinedWav2VecDataset(train_datasets, dataset_names)
-    combined_val = CombinedWav2VecDataset(val_datasets, dataset_names)
+    # Create datasets
+    train_dataset = Wav2VecDataset(train_files, target_sr=16000, max_duration_s=10)
+    val_dataset = Wav2VecDataset(val_files, target_sr=16000, max_duration_s=10)
 
     # Create model
     model = Wav2Vec2PretrainingModel(learning_rate=learning_rate)
 
-    # Create data collator
-    data_collator = DataCollatorForWav2Vec2Pretraining(
-        feature_extractor=model.feature_extractor,
-        padding=True,
-    )
-
-    # Create dataloaders with fewer workers to avoid issues
+    # Create dataloaders with the data collator
     train_loader = DataLoader(
-        combined_train,
+        train_dataset,
         batch_size=batch_size,
         shuffle=True,
-        collate_fn=data_collator,
-        num_workers=2,  # Reduced from 4
-        pin_memory=True,
+        collate_fn=model.data_collator,
+        num_workers=4,
+        pin_memory=True
     )
-
     val_loader = DataLoader(
-        combined_val,
+        val_dataset,
         batch_size=batch_size,
         shuffle=False,
-        collate_fn=data_collator,
-        num_workers=2,  # Reduced from 4
-        pin_memory=True,
+        collate_fn=model.data_collator,
+        num_workers=4,
+        pin_memory=True
     )
 
     # Setup logging and checkpoints
-    logger = CSVLogger(
-        save_dir="cks/logs",
-        name="wav2vec2",
-        version=title,
-    )
-
+    logger = CSVLogger(save_dir="cks/logs", name="wav2vec2", version=title)
     checkpoint_callback = ModelCheckpoint(
         monitor="val_loss",
         mode="min",
         dirpath=f"cks/model/wav2vec2/{title}",
         filename="wav2vec2-{epoch:02d}-{val_loss:.4f}",
         save_top_k=3,
-        every_n_epochs=10,
+        save_last=True
     )
 
     # Create trainer
@@ -529,18 +305,15 @@ def train_wav2vec2(
         devices=1,
         logger=logger,
         callbacks=[checkpoint_callback],
-        gradient_clip_val=1.0,
-        accumulate_grad_batches=4,  # Effective batch size = 32 * 4 = 128
-        precision=16,  # Use mixed precision for memory efficiency
+        log_every_n_steps=50,
+        gradient_clip_val=1.0,  # Add gradient clipping
+        accumulate_grad_batches=4,  # Effective batch size = 16 * 4 = 64
+        precision=16,  # Use mixed precision for faster training
     )
 
     # Train model
     print("Starting Wav2Vec2 pretraining...")
     trainer.fit(model, train_loader, val_loader)
-
-    # Test model
-    print("Testing model...")
-    trainer.test(model, val_loader)
 
     return model
 
@@ -560,19 +333,12 @@ if __name__ == "__main__":
 
     # Training parameters
     parser.add_argument("--epochs", type=int, default=100)
-    parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--learning_rate", type=float, default=5e-5)
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--learning_rate", type=float, default=1e-4)
 
     args = parser.parse_args()
 
-    # Set seeds
-    torch.manual_seed(args.seed)
-    torch.cuda.manual_seed(args.seed)
-    np.random.seed(args.seed)
-    random.seed(args.seed)
-
-    # Define max durations (in seconds) for each dataset
+    # Define max durations for each dataset
     optimal_max_duration = {
         "covidbreath": 8,
         "covidcough": 2,
@@ -588,6 +354,9 @@ if __name__ == "__main__":
     for dt, max_duration in optimal_max_duration.items():
         if getattr(args, dt):
             data_source[dt] = max_duration
+
+    # Set precision for better performance on RTX 4070
+    torch.set_float32_matmul_precision('medium')
 
     # Train model
     train_wav2vec2(
