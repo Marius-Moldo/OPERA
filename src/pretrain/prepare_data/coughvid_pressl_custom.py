@@ -9,10 +9,13 @@ from glob import glob
 
 
 def preprocess_spectrogram_SSL(
-    modality="modality", input_sec=2, form="", nfft=512, hop=256, TRIM=True
+    modality="modality", input_sec=2, form="", nfft=1024, hop=512, TRIM=True
 ):
 
     path = "datasets/coughvid/"
+
+    output_dir = f"datasets/coughvid/entire_spec_npy{form}/"
+    os.makedirs(output_dir, exist_ok=True)
 
     filenames = glob(path + f"wav{form}/*.wav")
 
@@ -42,7 +45,7 @@ def preprocess_spectrogram_SSL(
                 continue
 
             # saving to individual npy files
-            np.save(f"datasets/coughvid/entire_spec_npy{form}/" + userID + ".npy", data)
+            np.save(output_dir + userID + ".npy", data)
             filename_list.append(f"datasets/coughvid/entire_spec_npy{form}/" + userID)
 
     np.save(f"datasets/coughvid/entire_spec_filenames{form}.npy", filename_list)
@@ -62,8 +65,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--modality", type=str, default="cough")
     parser.add_argument("--input_sec", type=int, default=0)
-    parser.add_argument("--form", type=str, default="_segmented")
-    parser.add_argument("--nfft", type=int, default=512)
+    parser.add_argument("--form", type=str, default="_segmented_phase_2")
+    parser.add_argument("--nfft", type=int, default=1024)
     parser.add_argument("--hop", type=int, default=256)
     parser.add_argument("--TRIM", type=bool, default=True)
 

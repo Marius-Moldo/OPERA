@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import argparse
 import numpy as np
+from openpyxl.styles.builtins import output
 from tqdm import tqdm
 from src.util import get_entire_signal_librosa
 import os
@@ -14,6 +15,9 @@ def preprocess_spectrogram_SSL(
 
     path = "datasets/covidUK/"
     # path = ''
+
+    output_dir = f"datasets/covidUK/entire_spec_npy{form}/"
+    os.makedirs(output_dir, exist_ok=True)
 
     # filenames = np.load(path + "entire_" + modality + "_filenames.npy")
     filenames = glob(path + f"audio{form}/*.wav")
@@ -46,7 +50,7 @@ def preprocess_spectrogram_SSL(
                 continue
 
         # saving to individual npy files
-        np.save(path + f"entire_spec_npy{form}/" + userID + ".npy", data)
+        np.save(output_dir + userID + ".npy", data)
         filename_list.append(f"datasets/covidUK/entire_spec_npy{form}/" + userID)
 
     np.save(path + "entire_" + modality + "_filenames_segmented.npy", filename_list)
@@ -63,8 +67,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--modality", type=str, default="cough")
     parser.add_argument("--input_sec", type=int, default=0)
-    parser.add_argument("--form", type=str, default="_segmented")
-    parser.add_argument("--nfft", type=int, default=512)
+    parser.add_argument("--form", type=str, default="_segmented_phase_2")
+    parser.add_argument("--nfft", type=int, default=1024)
     parser.add_argument("--hop", type=int, default=256)
     parser.add_argument("--TRIM", type=bool, default=True)
 
