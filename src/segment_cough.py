@@ -154,10 +154,7 @@ def segment_and_save_coughs(files, output_dir=None):
 
 
 if __name__ == "__main__":
-    # files = glob.glob(os.path.join("datasets", "coughvid", "wav", "*.wav"))
-    files = np.load(
-        os.path.join("datasets", "coughvid", "entire_wav_cough_filenames.npy")
-    )
+    files = glob.glob(os.path.join("datasets", "coughvid", "wav", "*.wav"))
+
     wav_output_dir = os.path.join("datasets", "coughvid", "wav_segmented")
-    plot_output_dir = os.path.join("generated", "segmentations", "covidUK00")
     segment_and_save_coughs(files, wav_output_dir)

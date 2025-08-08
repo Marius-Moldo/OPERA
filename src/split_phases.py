@@ -357,7 +357,9 @@ def create_phase_visualization(
 # Example usage
 if __name__ == "__main__":
     # Process first 10 wav files in the audio folder
-    audio_folder = os.path.join("datasets", "coughvid", "wav")
+    audio_folder = os.path.join("datasets", "covidUK", "audio_segmented")
     create_phase_visualization(
-        audio_folder, output_dir=os.path.join("generated", "phases"), max_files=20
+        audio_folder,
+        output_dir=os.path.join("generated", "phases_covidUK"),
+        max_files=20,
     )

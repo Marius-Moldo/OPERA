@@ -70,6 +70,7 @@ class AudioDataset(torch.utils.data.Dataset):
     def __init__(
         self,
         data,
+        data_2,
         max_len=200,
         spec_augment=False,
         augment=True,
@@ -83,6 +84,7 @@ class AudioDataset(torch.utils.data.Dataset):
         max len: 251 for 8 secs, 157 for 5 second, 126 for 4 seconds, 63 for 2 seconds, 32 for 1 second
         """
         self.data = data
+        self.data_2 = data_2
         self.max_len = max_len
         self.augment = augment
         self.from_npy = from_npy
@@ -93,12 +95,15 @@ class AudioDataset(torch.utils.data.Dataset):
         self.preprocessing = preprocessing
         self.spec_augment_op = None
         if self.spec_augment:
-            self.spec_augment_op = SpecAugment(W=0, time_mask=5, freq_mask=5)
+            self.spec_augment_op = SpecAugment(W=10, time_mask=10, freq_mask=20)
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, idx):
+        if self.positive_pair_method == "phase":
+            print("using phase augmentation")
+
         if self.from_npy:
             npy_path = self.data[idx]
             x = np.load(npy_path + ".npy")
@@ -221,12 +226,12 @@ def train_multiple_data(
     training_method="cola",
     augment=True,
     spec_augment=False,
+    batch_size=512,
 ):
     print(data_source)
 
     method = training_method
 
-    batch_size = 512
     epochs = n_epoches
 
     print(f"contrastive strategy: {strategy}")
@@ -274,10 +279,19 @@ def train_multiple_data(
                     np.load("datasets/coughvid/entire_spec_filenames_smooth.npy")
                 )
             elif preprocessing == "segmented":
-                print("using coughvid segmented")
-                filenames = list(
-                    np.load("datasets/coughvid/entire_spec_filenames_segmented.npy")
-                )
+                if strategy == "phase":
+                    print("using phase augmentation")
+                    filenames1 = list(
+                        np.load("datasets/coughvid/entire_spec_filenames_phase_1.npy")
+                    )
+                    filenames2 = list(
+                        np.load("datasets/coughvid/entire_spec_filenames_phase_2.npy")
+                    )
+                else:
+                    print("using coughvid segmented")
+                    filenames = list(
+                        np.load("datasets/coughvid/entire_spec_filenames_segmented.npy")
+                    )
             else:
                 filenames = list(np.load("datasets/coughvid/entire_spec_filenames.npy"))
 
@@ -296,10 +310,19 @@ def train_multiple_data(
                     np.load("datasets/covidUK/entire_cough_filenames_smooth.npy")
                 )
             elif preprocessing == "segmented":
-                print("using covidUKcough segmented")
-                filenames = list(
-                    np.load("datasets/covidUK/entire_cough_filenames_segmented.npy")
-                )
+                if strategy == "phase":
+                    print("using phase augmentation")
+                    filenames1 = list(
+                        np.load("datasets/coughvid/entire_spec_filenames_phase_1.npy")
+                    )
+                    filenames2 = list(
+                        np.load("datasets/coughvid/entire_spec_filenames_phase_2.npy")
+                    )
+                else:
+                    print("using covidUKcough segmented")
+                    filenames = list(
+                        np.load("datasets/covidUK/entire_cough_filenames_segmented.npy")
+                    )
             else:
                 filenames = list(np.load("datasets/covidUK/entire_cough_filenames.npy"))
 
@@ -318,28 +341,60 @@ def train_multiple_data(
         # plt.savefig("fig/training/{}_length_hist.png".format(dt))
         # plt.clf()
 
-        train, test = train_test_split(filenames, test_size=0.1, random_state=1337)
+        if strategy == "phase":
+            train1, test1 = train_test_split(
+                filenames1, test_size=0.1, random_state=1337
+            )
+            train2, test2 = train_test_split(
+                filenames2, test_size=0.1, random_state=1337
+            )
 
-        train_data = AudioDataset(
-            train,
-            spec_augment=spec_augment,
-            augment=augment,
-            from_npy=True,
-            max_len=max_len,
-            method=method,
-            positive_pair_method=strategy,
-            preprocessing=preprocessing,
-        )
-        val_data = AudioDataset(
-            test,
-            spec_augment=spec_augment,
-            augment=augment,
-            from_npy=True,
-            max_len=max_len,
-            method=method,
-            positive_pair_method=strategy,
-            preprocessing=preprocessing,
-        )
+            train_data = AudioDataset(
+                train1,
+                data_2=train2,
+                spec_augment=spec_augment,
+                augment=augment,
+                from_npy=True,
+                max_len=max_len,
+                method=method,
+                positive_pair_method=strategy,
+                preprocessing=preprocessing,
+            )
+            val_data = AudioDataset(
+                test1,
+                data_2=test2,
+                spec_augment=spec_augment,
+                augment=augment,
+                from_npy=True,
+                max_len=max_len,
+                method=method,
+                positive_pair_method=strategy,
+                preprocessing=preprocessing,
+            )
+
+        else:
+            train, test = train_test_split(filenames, test_size=0.1, random_state=1337)
+
+            train_data = AudioDataset(
+                train,
+                spec_augment=spec_augment,
+                augment=augment,
+                from_npy=True,
+                max_len=max_len,
+                method=method,
+                positive_pair_method=strategy,
+                preprocessing=preprocessing,
+            )
+            val_data = AudioDataset(
+                test,
+                spec_augment=spec_augment,
+                augment=augment,
+                from_npy=True,
+                max_len=max_len,
+                method=method,
+                positive_pair_method=strategy,
+                preprocessing=preprocessing,
+            )
 
         train_loader = DataLoader(
             train_data, batch_size=batch_size, shuffle=True, num_workers=7
@@ -389,6 +444,7 @@ def train_multiple_data(
         devices=1,
         logger=logger,
         callbacks=[DecayLearningRate(), checkpoint_callback],
+        precision="16-mixed",
     )
 
     print("======================SSL Training==============================")
@@ -412,16 +468,17 @@ if __name__ == "__main__":
     parser.add_argument("--covidUKexhalation", type=bool, default=False)
     parser.add_argument("--covidUKcough", type=bool, default=False)
 
-    parser.add_argument("--strategy", type=str, default="crop")
+    parser.add_argument("--strategy", type=str, default="phase")
     parser.add_argument("--preprocessing", type=str, default=None)
     parser.add_argument("--augment", type=str, default=True)
     parser.add_argument("--specaugment", type=str, default=False)
+    parser.add_argument("--batch_size", type=int, default=512)
 
     # control training
     parser.add_argument("--dim_hidden", type=int, default=1280)
     parser.add_argument("--dim_out", type=int, default=512)
     parser.add_argument("--encoder", type=str, default="efficientnet")
-    parser.add_argument("--epoches", type=int, default=512)
+    parser.add_argument("--epoches", type=int, default=200)
     parser.add_argument("--seed", type=int, default=42)
 
     # training goal
@@ -459,4 +516,5 @@ if __name__ == "__main__":
         preprocessing=args.preprocessing,
         augment=args.augment,
         spec_augment=args.specaugment,
+        batch_size=args.batch_size,
     )
