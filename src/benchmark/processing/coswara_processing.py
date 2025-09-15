@@ -189,7 +189,6 @@ def preprocess_split_google():
 
 
 def split_set(modality, label="smoker"):
-
     broad_modality = modality.split("-")[0]
     sound_dir_loc = np.load(
         feature_dir
@@ -215,7 +214,6 @@ def split_set(modality, label="smoker"):
 
 
 def check_demographic(modality, label="smoker", trait="label"):
-
     print("checking training and testing demographic", trait, modality, label)
     broad_modality = modality.split("-")[0]
     sound_dir_loc = np.load(
@@ -398,15 +396,12 @@ if __name__ == "__main__":
             input_sec = args.min_len_cnn
         elif args.pretrain == "operaGT":
             input_sec = 8.18
-        else:
-            input_sec = args.min_len_cnn
-
         preprocess_spectrogram(args.modality, args.label)
         extract_and_save_embeddings(
             args.pretrain,
             args.modality,
             args.label,
-            input_sec,
+            input_sec=8,
             dim=args.dim,
             output_file_name=args.output_file_name,
         )
