@@ -15,11 +15,14 @@ from sklearn.model_selection import train_test_split
 from tensorflow.python.keras.metrics import FalseNegatives
 from torch.utils.data import DataLoader
 from lightning.pytorch.utilities import CombinedLoader
+from transformers.utils.doc import PT_RETURN_INTRODUCTION
+import random
 from src.util import random_crop, random_mask, random_multiply
 from src.model.models_cola import Cola, ColaMD
 import matplotlib.pyplot as plt
 from scipy import signal
 import librosa
+import math
 
 # torch.set_float32_matmul_precision('high')  # or 'high' for even more performance
 import sys
@@ -62,6 +65,48 @@ def mask_frequencies(x, side_to_mask):
     return x
 
 
+def pad(x):
+    time_len = x.shape[0]
+    if time_len < 50:
+        padding_needed = 50 - time_len
+        x_padded = np.pad(x, ((0, padding_needed), (0, 0)), mode="reflect")
+    else:
+        x_padded = x[:50]  # Truncate if longer than 25
+    return x_padded
+
+
+def interpolate_to_size(x, target_size=50):
+    """
+    Interpolates the spectrogram to the target size along the time dimension.
+
+    Args:
+        x: Input spectrogram of shape (time, freq)
+        target_size: Target time dimension size
+
+    Returns:
+        Interpolated spectrogram of shape (target_size, freq)
+    """
+    import torch.nn.functional as F
+
+    if isinstance(x, np.ndarray):
+        x = torch.from_numpy(x).float()
+
+    x = x.unsqueeze(0).unsqueeze(0)
+
+    interpolated = F.interpolate(
+        x,
+        size=(target_size, x.shape[-1]),  # (target_time, original_freq)
+        mode="bilinear",
+        align_corners=False,
+    )
+
+    interpolated = interpolated.squeeze(0).squeeze(0)
+
+    return (
+        interpolated.numpy() if isinstance(interpolated, torch.Tensor) else interpolated
+    )
+
+
 output_dir = "spectrogram_images"
 os.makedirs(output_dir, exist_ok=True)
 
@@ -70,7 +115,7 @@ class AudioDataset(torch.utils.data.Dataset):
     def __init__(
         self,
         data,
-        data_2,
+        data_2=None,
         max_len=200,
         spec_augment=False,
         augment=True,
@@ -79,6 +124,7 @@ class AudioDataset(torch.utils.data.Dataset):
         method="cola",
         positive_pair_method="crop",
         preprocessing=None,
+        data_percentage=1.0,
     ):
         """
         max len: 251 for 8 secs, 157 for 5 second, 126 for 4 seconds, 63 for 2 seconds, 32 for 1 second
@@ -95,38 +141,43 @@ class AudioDataset(torch.utils.data.Dataset):
         self.preprocessing = preprocessing
         self.spec_augment_op = None
         if self.spec_augment:
-            self.spec_augment_op = SpecAugment(W=10, time_mask=10, freq_mask=20)
+            self.spec_augment_op = SpecAugment(W=10, time_mask=10, freq_mask=15)
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, idx):
         if self.positive_pair_method == "phase":
-            print("using phase augmentation")
+            npy_path1 = self.data[idx]
+            npy_path2 = self.data_2[idx]
+            x1 = np.load(npy_path1 + ".npy")
+            x2 = np.load(npy_path2 + ".npy")
+            if os.path.basename(npy_path1) != os.path.basename(npy_path2):
+                print("paths not equal: ", npy_path1, npy_path2)
 
-        if self.from_npy:
-            npy_path = self.data[idx]
-            x = np.load(npy_path + ".npy")
         else:
-            x = self.data[idx]
+            if self.from_npy:
+                npy_path = self.data[idx]
+                x = np.load(npy_path + ".npy")
+            else:
+                x = self.data[idx]
 
         if self.method == "cola":
             if self.augment:
                 x = random_mask(x)
 
-            if idx == 1:
-                show_spec(x, os.path.join(output_dir, f"x_{idx}"))
+            if self.positive_pair_method == "phase":
+                x1 = pad(x1)
+                x2 = pad(x2)
+                if idx == 1:
+                    show_spec(x1, os.path.join(output_dir, f"x_{idx}"))
 
-            if self.preprocessing == "segmented":
-                time_len = x.shape[0]
-                if time_len < 50:
-                    padding_needed = 50 - time_len
-                    x_padded = np.pad(x, ((0, padding_needed), (0, 0)), mode="reflect")
-                else:
-                    x_padded = x[:50]  # Truncate if longer than 25
+            elif self.preprocessing == "segmented":
+                if idx == 1:
+                    show_spec(x, os.path.join(output_dir, f"x_{idx}"))
 
-                x1 = x_padded
-                x2 = x_padded
+                x1 = pad(x)
+                x2 = pad(x)
 
             else:
                 if self.positive_pair_method == "crop":
@@ -171,7 +222,7 @@ class AudioDataset(torch.utils.data.Dataset):
                 x2 = x2.unsqueeze(0)
 
                 x1 = self.spec_augment_op.apply(x1)
-                # x2 = self.spec_augment_op.apply(x2)
+                x2 = self.spec_augment_op.apply(x2)
 
                 if idx == 1:
                     show_spec(x1, os.path.join(output_dir, f"x1_AUG_{idx}"))
@@ -227,6 +278,7 @@ def train_multiple_data(
     augment=True,
     spec_augment=False,
     batch_size=512,
+    data_percentage=1.0,
 ):
     print(data_source)
 
@@ -280,12 +332,15 @@ def train_multiple_data(
                 )
             elif preprocessing == "segmented":
                 if strategy == "phase":
-                    print("using phase augmentation")
                     filenames1 = list(
-                        np.load("datasets/coughvid/entire_spec_filenames_phase_1.npy")
+                        np.load(
+                            "datasets/coughvid/entire_spec_filenames_segmented_phase_1.npy"
+                        )
                     )
                     filenames2 = list(
-                        np.load("datasets/coughvid/entire_spec_filenames_phase_2.npy")
+                        np.load(
+                            "datasets/coughvid/entire_spec_filenames_segmented_phase_2.npy"
+                        )
                     )
                 else:
                     print("using coughvid segmented")
@@ -311,12 +366,15 @@ def train_multiple_data(
                 )
             elif preprocessing == "segmented":
                 if strategy == "phase":
-                    print("using phase augmentation")
                     filenames1 = list(
-                        np.load("datasets/coughvid/entire_spec_filenames_phase_1.npy")
+                        np.load(
+                            "datasets/coughvid/entire_spec_filenames_segmented_phase_1.npy"
+                        )
                     )
                     filenames2 = list(
-                        np.load("datasets/coughvid/entire_spec_filenames_phase_2.npy")
+                        np.load(
+                            "datasets/coughvid/entire_spec_filenames_segmented_phase_2.npy"
+                        )
                     )
                 else:
                     print("using covidUKcough segmented")
@@ -340,8 +398,17 @@ def train_multiple_data(
         # plt.grid(True)
         # plt.savefig("fig/training/{}_length_hist.png".format(dt))
         # plt.clf()
+        random.seed(42)
 
         if strategy == "phase":
+            combined_filenames = list(zip(filenames1, filenames2))
+            random.shuffle(combined_filenames)
+            num_items = int(len(combined_filenames) * data_percentage)
+            print("num_items", num_items)
+
+            combined_filenames = combined_filenames[:num_items]
+            filenames1, filenames2 = zip(*combined_filenames)
+
             train1, test1 = train_test_split(
                 filenames1, test_size=0.1, random_state=1337
             )
@@ -373,6 +440,11 @@ def train_multiple_data(
             )
 
         else:
+            random.shuffle(filenames)
+            num_items = int(len(filenames) * data_percentage)
+            print("num_items", num_items)
+            filenames = filenames[:num_items]
+
             train, test = train_test_split(filenames, test_size=0.1, random_state=1337)
 
             train_data = AudioDataset(
@@ -384,6 +456,7 @@ def train_multiple_data(
                 method=method,
                 positive_pair_method=strategy,
                 preprocessing=preprocessing,
+                data_percentage=data_percentage,
             )
             val_data = AudioDataset(
                 test,
@@ -394,6 +467,7 @@ def train_multiple_data(
                 method=method,
                 positive_pair_method=strategy,
                 preprocessing=preprocessing,
+                data_percentage=data_percentage,
             )
 
         train_loader = DataLoader(
@@ -434,17 +508,25 @@ def train_multiple_data(
         mode="min",
         dirpath="cks/model/combined/" + "_".join(data_source.keys()),
         filename="encoder-" + title + "-{epoch:02d}--{valid_acc:.2f}-{valid_loss:.4f}",
-        every_n_epochs=50,
+        every_n_epochs=20,
         save_top_k=5,
     )
 
+    steps_per_epoch = max(num_batch)
+
+    target_steps = 20000
+    required_epochs = math.ceil(target_steps / steps_per_epoch)
+    # required_epochs = 200
+    print("required_epochs", required_epochs)
+
     trainer = pl.Trainer(
-        max_epochs=epochs,
+        max_epochs=required_epochs,
         accelerator="gpu",
         devices=1,
         logger=logger,
         callbacks=[DecayLearningRate(), checkpoint_callback],
         precision="16-mixed",
+        check_val_every_n_epoch=20,
     )
 
     print("======================SSL Training==============================")
@@ -468,11 +550,12 @@ if __name__ == "__main__":
     parser.add_argument("--covidUKexhalation", type=bool, default=False)
     parser.add_argument("--covidUKcough", type=bool, default=False)
 
-    parser.add_argument("--strategy", type=str, default="phase")
+    parser.add_argument("--strategy", type=str, default="crop")
     parser.add_argument("--preprocessing", type=str, default=None)
-    parser.add_argument("--augment", type=str, default=True)
-    parser.add_argument("--specaugment", type=str, default=False)
+    parser.add_argument("--augment", type=bool, default=False)
+    parser.add_argument("--specaugment", type=bool, default=False)
     parser.add_argument("--batch_size", type=int, default=512)
+    parser.add_argument("--data_percentage", type=float, default=1.0)
 
     # control training
     parser.add_argument("--dim_hidden", type=int, default=1280)
@@ -517,4 +600,5 @@ if __name__ == "__main__":
         augment=args.augment,
         spec_augment=args.specaugment,
         batch_size=args.batch_size,
+        data_percentage=args.data_percentage,
     )

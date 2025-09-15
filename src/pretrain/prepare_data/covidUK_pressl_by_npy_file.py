@@ -10,7 +10,7 @@ from glob import glob
 
 ### for pretraining
 def preprocess_spectrogram_SSL(
-    modality="modality", input_sec=2, form="", nfft=512, hop=256, TRIM=True
+    modality="modality", input_sec=2, form="", nfft=1024, hop=512, TRIM=True
 ):
 
     path = "datasets/covidUK/"
@@ -69,7 +69,7 @@ if __name__ == "__main__":
     parser.add_argument("--input_sec", type=int, default=0)
     parser.add_argument("--form", type=str, default="_segmented_phase_2")
     parser.add_argument("--nfft", type=int, default=1024)
-    parser.add_argument("--hop", type=int, default=256)
+    parser.add_argument("--hop", type=int, default=512)
     parser.add_argument("--TRIM", type=bool, default=True)
 
     args = parser.parse_args()

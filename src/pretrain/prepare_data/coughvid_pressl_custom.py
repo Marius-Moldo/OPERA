@@ -67,7 +67,7 @@ if __name__ == "__main__":
     parser.add_argument("--input_sec", type=int, default=0)
     parser.add_argument("--form", type=str, default="_segmented_phase_2")
     parser.add_argument("--nfft", type=int, default=1024)
-    parser.add_argument("--hop", type=int, default=256)
+    parser.add_argument("--hop", type=int, default=512)
     parser.add_argument("--TRIM", type=bool, default=True)
 
     args = parser.parse_args()
