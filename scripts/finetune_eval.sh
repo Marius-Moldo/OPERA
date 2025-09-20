@@ -1,8 +1,12 @@
-python -u src/benchmark/other_eval/finetuning.py --task icbhidisease --pretrain operaCT --dim 768
-python -u src/benchmark/other_eval/finetuning.py --task icbhidisease --pretrain operaCE --dim 1280
-python -u src/benchmark/other_eval/finetuning.py --task icbhidisease --pretrain operaGT --dim 384
-python -u src/benchmark/other_eval/finetuning.py --task icbhidisease --pretrain audiomae --dim 768 
-python -u src/benchmark/other_eval/finetuning.py --task icbhidisease --pretrain clap --dim 1024
+# python -u src/benchmark/other_eval/finetuning.py --task icbhidisease --pretrain operaCT --dim 768
+# python -u src/benchmark/other_eval/finetuning.py --task icbhidisease --pretrain operaCE --dim 1280
+# python -u src/benchmark/other_eval/finetuning.py --task icbhidisease --pretrain operaGT --dim 384
+# python -u src/benchmark/other_eval/finetuning.py --task icbhidisease --pretrain audiomae --dim 768
+# python -u src/benchmark/other_eval/finetuning.py --task icbhidisease --pretrain clap --dim 1024
+
+python -u src/benchmark/other_eval/finetuning.py --task coughCOPD --pretrain operaCE --dim 1280
+
+
 
 # python -u src/benchmark/other_eval/finetuning.py --task snoring --pretrain operaCT --dim 768
 # python -u src/benchmark/other_eval/finetuning.py --task snoring --pretrain operaCE --dim 1280
