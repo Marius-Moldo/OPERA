@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 
-# List of pretrain checkpoints / identifiers
 PRETRAINS=(
   "cks/model/combined/coughvid_covidUKcough/encoder-phase_20000_steps_bs256_data_used_20-epoch=319--valid_acc=0.27-valid_loss=3.2871.ckpt"
   "cks/model/combined/coughvid_covidUKcough/encoder-phase_20000_steps_bs256_data_used_40-epoch=159--valid_acc=0.35-valid_loss=2.9020.ckpt"
@@ -15,35 +14,32 @@ PRETRAINS=(
 )
 
 
-# Short output names (same length as PRETRAINS)
 OUTPUT_NAMES=(
   "operaCE"
 )
 
-## Optional: store logs per run
-#STAMP="$(date +%Y%m%d_%H%M%S)"
-#LOGDIR="logs/${STAMP}"
-#mkdir -p "${LOGDIR}"
-#
-#for i in "${!PRETRAINS[@]}"; do
-#  PRE="${PRETRAINS[$i]}"
-#  OUT="${OUTPUT_NAMES[$i]}"
-#
-#  echo "========================================"
-#  echo "Running with --pretrain ${PRE}"
-#  echo "Output file: ${OUT}"
-#  echo "========================================"
-#
-#  python3 -m src.benchmark.processing.custom_copd_processing \
-#    --pretrain "${PRE}" \
-#    --output_file_name "${OUT}" \
-#    | tee "${LOGDIR}/${OUT}.log"
-#done
-#
-#echo "Preprocessing done. Logs saved to: ${LOGDIR}"
-#
+STAMP="$(date +%Y%m%d_%H%M%S)"
+LOGDIR="logs/${STAMP}"
+mkdir -p "${LOGDIR}"
 
-# Optional: store logs per run
+for i in "${!PRETRAINS[@]}"; do
+  PRE="${PRETRAINS[$i]}"
+  OUT="${OUTPUT_NAMES[$i]}"
+
+  echo "========================================"
+  echo "Running with --pretrain ${PRE}"
+  echo "Output file: ${OUT}"
+  echo "========================================"
+
+  python3 -m src.benchmark.processing.custom_copd_processing \
+    --pretrain "${PRE}" \
+    --output_file_name "${OUT}" \
+    | tee "${LOGDIR}/${OUT}.log"
+done
+
+echo "Preprocessing done. Logs saved to: ${LOGDIR}"
+
+
 STAMP="$(date +%Y%m%d_%H%M%S)"
 LOGDIR="logs/${STAMP}"
 mkdir -p "${LOGDIR}"

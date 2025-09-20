@@ -17,7 +17,7 @@
 #        --epoches 200 \
 
 
-PERCENTAGES="0.8 0.6 0.4 0.2"
+PERCENTAGES="1 0.8 0.6 0.4 0.2"
 BATCH_SIZES="256"
 
 for bs in $BATCH_SIZES; do
@@ -35,7 +35,7 @@ for bs in $BATCH_SIZES; do
       --data_percentage "$p" \
       --specaugment True \
       --batch_size "$bs" \
-      --epoches 200
+      --target_steps 20000 \
 
     echo "--- Finished training for data_percentage: $p | batch_size: $bs ---"
     echo
