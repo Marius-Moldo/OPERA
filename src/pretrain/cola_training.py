@@ -28,22 +28,6 @@ import math
 import sys
 
 
-def show_spec(data, title="Spectrogram"):
-    """Displays a spectrogram."""
-    if isinstance(data, torch.Tensor):
-        data = data.squeeze().numpy()
-
-    plt.figure(figsize=(12, 6))
-    plt.imshow(data.T, aspect="auto", origin="lower", cmap="viridis")
-    plt.colorbar(label="Magnitude")
-    plt.xlabel("Time Bins")
-    plt.ylabel("Frequency Bins")
-    plt.title(title)
-    plt.tight_layout()
-    plt.savefig(f"{title}.png")
-    plt.close()
-
-
 def combine_dataloaders(dataloaders, train=False):
     if train:
         return CombinedLoader(dataloaders, "max_size_cycle")
@@ -51,6 +35,15 @@ def combine_dataloaders(dataloaders, train=False):
 
 
 def mask_frequencies(x, side_to_mask):
+    """
+    Masks either the top half or bottom half of the frequency bins in the spectrogram.
+    Args:
+        x: Input spectrogram of shape (time, freq)
+        side_to_mask: "top" to mask the top half, "bottom" to mask
+                        the bottom half
+    Returns:
+        Masked spectrogram of shape (time, freq)
+    """
     x = x.copy()
 
     num_freqs = x.shape[1]
@@ -66,6 +59,13 @@ def mask_frequencies(x, side_to_mask):
 
 
 def pad(x):
+    """
+    Pads or truncates the spectrogram to a fixed length of 50 along the time dimension.
+    Args:
+        x: Input spectrogram of shape (time, freq)
+    Returns:
+        Padded or truncated spectrogram of shape (50, freq)
+    """
     time_len = x.shape[0]
     if time_len < 50:
         padding_needed = 50 - time_len
@@ -88,23 +88,20 @@ def interpolate_to_size(x, target_size=50):
     """
     import torch.nn.functional as F
 
-    if isinstance(x, np.ndarray):
-        x = torch.from_numpy(x).float()
+    x = torch.from_numpy(x).float()
 
     x = x.unsqueeze(0).unsqueeze(0)
 
     interpolated = F.interpolate(
         x,
-        size=(target_size, x.shape[-1]),  # (target_time, original_freq)
+        size=(target_size, x.shape[-1]),
         mode="bilinear",
         align_corners=False,
     )
 
     interpolated = interpolated.squeeze(0).squeeze(0)
 
-    return (
-        interpolated.numpy() if isinstance(interpolated, torch.Tensor) else interpolated
-    )
+    return interpolated.numpy()
 
 
 output_dir = "spectrogram_images"
@@ -167,51 +164,34 @@ class AudioDataset(torch.utils.data.Dataset):
                 x = random_mask(x)
 
             if self.positive_pair_method == "phase":
-                x1 = pad(x1)
-                x2 = pad(x2)
-                if idx == 1:
-                    show_spec(x1, os.path.join(output_dir, f"x_{idx}"))
+                x1 = interpolate_to_size(x1)
+                x2 = interpolate_to_size(x2)
 
-            elif self.preprocessing == "segmented":
-                if idx == 1:
-                    show_spec(x, os.path.join(output_dir, f"x_{idx}"))
+            elif self.positive_pair_method == "crop":
+                x1 = random_crop(x, crop_size=self.max_len)
+                x2 = random_crop(x, crop_size=self.max_len)
 
-                x1 = pad(x)
-                x2 = pad(x)
-
-            else:
-                if self.positive_pair_method == "crop":
-                    x1 = random_crop(x, crop_size=self.max_len)
-                    x2 = random_crop(x, crop_size=self.max_len)
-
-                    # Pass `idx` to make filenames unique
-                    if idx == 1:
-                        show_spec(x1, os.path.join(output_dir, f"x1_{idx}"))
-                        show_spec(x2, os.path.join(output_dir, f"x2_{idx}"))
-
-                elif self.positive_pair_method == "mask":
-                    time_len = x.shape[0]
-                    if time_len > self.max_len:
-                        start_idx = np.random.randint(0, time_len - self.max_len + 1)
-                        x_cropped = x[start_idx : start_idx + self.max_len, :]
-                    elif time_len < self.max_len:
-                        padding_needed = self.max_len - time_len
-                        x_cropped = np.pad(
-                            x, ((0, padding_needed), (0, 0)), mode="constant"
-                        )
-                    else:
-                        x_cropped = x
-
-                    x1 = mask_frequencies(x_cropped, side_to_mask="top")
-                    x2 = mask_frequencies(x_cropped, side_to_mask="bottom")
-                else:
-                    raise ValueError(
-                        "positive_pair_method must be either 'crop' or 'mask'"
+            elif self.positive_pair_method == "mask":
+                time_len = x.shape[0]
+                if time_len > self.max_len:
+                    start_idx = np.random.randint(0, time_len - self.max_len + 1)
+                    x_cropped = x[start_idx : start_idx + self.max_len, :]
+                elif time_len < self.max_len:
+                    padding_needed = self.max_len - time_len
+                    x_cropped = np.pad(
+                        x, ((0, padding_needed), (0, 0)), mode="constant"
                     )
+                else:
+                    x_cropped = x
 
-                if self.augment:
-                    x1 = random_multiply(x1)
-                    x2 = random_multiply(x2)
+                x1 = mask_frequencies(x_cropped, side_to_mask="top")
+                x2 = mask_frequencies(x_cropped, side_to_mask="bottom")
+            else:
+                raise ValueError("positive_pair_method must be either 'crop' or 'mask'")
+
+            if self.augment:
+                x1 = random_multiply(x1)
+                x2 = random_multiply(x2)
 
             x1 = torch.tensor(x1, dtype=torch.float)
             x2 = torch.tensor(x2, dtype=torch.float)
@@ -223,13 +203,6 @@ class AudioDataset(torch.utils.data.Dataset):
 
                 x1 = self.spec_augment_op.apply(x1)
                 x2 = self.spec_augment_op.apply(x2)
-
-                if idx == 1:
-                    show_spec(x1, os.path.join(output_dir, f"x1_AUG_{idx}"))
-                    show_spec(x2, os.path.join(output_dir, f"x2_AUG_{idx}"))
-
-                # THE FIX: This line terminates the script. Remove or comment it out.
-                # sys.exit()
 
                 x1 = x1.squeeze(0)
                 x2 = x2.squeeze(0)
@@ -279,6 +252,7 @@ def train_multiple_data(
     spec_augment=False,
     batch_size=512,
     data_percentage=1.0,
+    target_steps=None,
 ):
     print(data_source)
 
@@ -512,15 +486,14 @@ def train_multiple_data(
         save_top_k=5,
     )
 
-    steps_per_epoch = max(num_batch)
+    if target_steps:
+        steps_per_epoch = max(num_batch)
 
-    target_steps = 20000
-    required_epochs = math.ceil(target_steps / steps_per_epoch)
-    # required_epochs = 200
-    print("required_epochs", required_epochs)
+        epochs = math.ceil(target_steps / steps_per_epoch)
+    print("epochs", epochs)
 
     trainer = pl.Trainer(
-        max_epochs=required_epochs,
+        max_epochs=epochs,
         accelerator="gpu",
         devices=1,
         logger=logger,
@@ -556,6 +529,7 @@ if __name__ == "__main__":
     parser.add_argument("--specaugment", type=bool, default=False)
     parser.add_argument("--batch_size", type=int, default=512)
     parser.add_argument("--data_percentage", type=float, default=1.0)
+    parser.add_argument("--target_steps", type=float, default=None)
 
     # control training
     parser.add_argument("--dim_hidden", type=int, default=1280)

@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 
-# List of pretrain checkpoints / identifiers
 PRETRAINS=(
   "cks/model/combined/coughvid_covidUKcough/encoder-phase_20000_steps_bs256_data_used_20-epoch=319--valid_acc=0.27-valid_loss=3.2871.ckpt"
   "cks/model/combined/coughvid_covidUKcough/encoder-phase_20000_steps_bs256_data_used_40-epoch=159--valid_acc=0.35-valid_loss=2.9020.ckpt"
@@ -15,7 +14,6 @@ PRETRAINS=(
 )
 
 
-# Short output names (same length as PRETRAINS)
 OUTPUT_NAMES=(
   "phase_256_20000_20"
   "phase_256_20000_40"

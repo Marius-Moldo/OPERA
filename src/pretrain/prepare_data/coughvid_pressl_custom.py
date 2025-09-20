@@ -24,7 +24,6 @@ def preprocess_spectrogram_SSL(
 
     filename_list = []
 
-    # use metadata as outer loop to enable quality check
     for file in tqdm(filenames):
 
         userID = file.split(".")[0]
@@ -44,7 +43,6 @@ def preprocess_spectrogram_SSL(
                 invalid_data += 1
                 continue
 
-            # saving to individual npy files
             np.save(output_dir + userID + ".npy", data)
             filename_list.append(f"datasets/coughvid/entire_spec_npy{form}/" + userID)
 
@@ -55,9 +53,6 @@ def preprocess_spectrogram_SSL(
         "; invalid data",
         invalid_data,
     )
-
-
-# finished preprocessing cough: valid data 7179 ; invalid data 327
 
 
 if __name__ == "__main__":
