@@ -25,11 +25,10 @@ OUTPUT_NAMES=(
   "OPERA-CE-Cough-60pct"
   "OPERA-CE-Cough-80pct"
   "OPERA-CE-Cough"
-
 )
 
-TASK="coswarasmoker"
-LABEL="smoker"
+TASK="coughvidsex"
+LABEL="gender"
 
 STAMP="$(date +%Y%m%d_%H%M%S)"
 LOGDIR="logs/${STAMP}"
@@ -44,7 +43,7 @@ for i in "${!PRETRAINS[@]}"; do
   echo "Output file: ${OUT}"
   echo "========================================"
 
-  python3 -m src.benchmark.processing.coswara_processing \
+  python3 -m src.benchmark.processing.coughvid_processing \
     --pretrain "${PRE}" \
     --output_file_name "${OUT}" \
     --label "${LABEL}" \
