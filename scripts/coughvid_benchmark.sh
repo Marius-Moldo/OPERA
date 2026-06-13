@@ -27,7 +27,7 @@ OUTPUT_NAMES=(
   "OPERA-CE-Cough"
 )
 
-PROC_EXTRA_ARGS=(--label smoker)
+PROC_EXTRA_ARGS=(--label gender)
 
-run_preprocess_phase coswara_processing
-run_eval_phase coswarasmoker "${OUTPUT_NAMES[@]}"
+run_preprocess_phase coughvid_processing
+run_eval_phase coughvidsex "${OUTPUT_NAMES[@]}"

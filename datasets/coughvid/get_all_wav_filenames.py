@@ -1,9 +1,12 @@
-import numpy as np
-import glob
+import os
+import sys
 
-folder = "datasets/coughvid/wav_segmented"
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # datasets/
+from dataset_filename_utils import glob_to_npy
 
-all_files = glob.glob(folder + "/*.wav")
-
-print(all_files)
-np.save("datasets/coughvid/entire_wav_filenames_segmented.npy", all_files)
+# Collect all segmented coughvid wav paths
+glob_to_npy(
+    "datasets/coughvid/wav_segmented",
+    "*.wav",
+    "datasets/coughvid/entire_wav_filenames_segmented.npy",
+)

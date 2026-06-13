@@ -1,23 +1,13 @@
 #!/usr/bin/env bash
+source "$(dirname "$0")/lib/benchmark_common.sh"
 
+# Eval-only: pretrain feature sets are already extracted, just run linear_eval.
 PRETRAINS=(
-  "phase_1024_20"
-  "phase_1024_40"
-  "phase_1024_60"
-  "phase_1024_80"
-  "phase_1024_100"
+  "CoughPhase-CLR-20pct"
+  "CoughPhase-CLR-40pct"
+  "CoughPhase-CLR-60pct"
+  "CoughPhase-CLR-80pct"
+  "CoughPhase-CLR"
 )
 
-# Optional: store logs per run
-STAMP="$(date +%Y%m%d_%H%M%S)"
-LOGDIR="logs/${STAMP}"
-mkdir -p "${LOGDIR}"
-
-for PRE in "${PRETRAINS[@]}"; do
-  echo "========================================"
-  echo "Running with --pretrain ${PRE}"
-  echo "========================================"
-  python3 -m src.benchmark.linear_eval --pretrain "${PRE}" --task coughvidsex | tee "${LOGDIR}/${PRE}.log"
-done
-
-echo "All runs complete. Logs saved to: ${LOGDIR}"
+run_eval_phase coswarasex "${PRETRAINS[@]}"

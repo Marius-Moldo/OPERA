@@ -38,8 +38,6 @@ def extract_and_save_embeddings(
 
     filenames_np = (audio_dir + "/" + metadata_df["filename"].astype(str)).to_numpy()
 
-    print(filenames_np)
-
     opera_features = extract_opera_feature(
         filenames_np, pretrain=feature, input_sec=input_sec, dim=dim
     )

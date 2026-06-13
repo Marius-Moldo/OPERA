@@ -120,10 +120,10 @@ if __name__ == "__main__":
     else:
         input_sec = args.min_len_cnn
 
-        extract_and_save_embeddings(
-            args.pretrain,
-            args.label,
-            input_sec,
-            dim=args.dim,
-            output_file_name=args.output_file_name,
-        )
+    extract_and_save_embeddings(
+        args.pretrain,
+        args.label,
+        input_sec,
+        dim=args.dim,
+        output_file_name=args.output_file_name,
+    )

@@ -16,30 +16,11 @@ class Encoder(torch.nn.Module):
             "efficientnet-b0", include_top=False, drop_connect_rate=drop_connect_rate
         )
 
-        # # Try alternative approach to loading EfficientNet
-        # try:
-        #     self.efficientnet = EfficientNet.from_pretrained(
-        #         "efficientnet-b0", include_top=False, drop_connect_rate=drop_connect_rate
-        #     )
-        # except (AssertionError, KeyError) as e:
-        #     print(f"Warning: Failed to load pretrained weights with include_top=False: {e}")
-        #     print("Loading with include_top=True and removing classifier manually...")
-        #
-        #     # Load with classifier and remove it manually
-        #     self.efficientnet = EfficientNet.from_pretrained(
-        #         "efficientnet-b0", include_top=True, drop_connect_rate=drop_connect_rate
-        #     )
-        #     # Remove the final classification layer
-        #     self.efficientnet._fc = torch.nn.Identity()
-
     def forward(self, x):
         x = x.unsqueeze(1)
 
         x = self.cnn1(x)
         x = self.efficientnet(x)
-
-        # Debug: print tensor shape
-        # print(f"EfficientNet output shape: {x.shape}")
 
         # Handle different output shapes more robustly
         if len(x.shape) == 4 and x.shape[2] == 1 and x.shape[3] == 1:

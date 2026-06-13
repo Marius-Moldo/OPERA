@@ -19,7 +19,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import torch.nn as nn
 import time
-import re
 
 
 def crop_first(data, crop_size=128):
@@ -612,33 +611,6 @@ def train_test_split_from_list(X, Y, train_test):
     return np.array(X_train), np.array(X_test), np.array(y_train), np.array(y_test)
 
 
-def plot_tsne(x_plot, y_plot, order=None, color="hls", title=""):
-    from sklearn.manifold import TSNE
-
-    tsne = TSNE(n_components=2, verbose=1, perplexity=40, n_iter=300, random_state=42)
-    tsne_results = tsne.fit_transform(x_plot)
-    plt.figure(figsize=(16, 10))
-    if color == "paired":
-        cm = sns.color_palette("Paired", 10)
-    else:
-        cm = sns.color_palette()
-    sns.scatterplot(
-        x=tsne_results[:, 0],
-        y=tsne_results[:, 1],
-        hue=y_plot,
-        hue_order=order,
-        palette=cm,
-        # sns.color_palette("hls", 8),
-        # palette=sns.color_palette("Paired", 10),
-        legend="full",
-        alpha=0.7,
-    )
-    if title == "":
-        title = str(time.time())
-    plt.savefig("fig/tsne/" + title + ".png", bbox_inches="tight")
-    print("t-sne plot saved to", "fig/tsne/" + title + ".png")
-
-
 def plot_tsne_individual(x_plot, y_plot, order=None, title="", n_instance=1401):
     from sklearn.manifold import TSNE
 
@@ -671,59 +643,6 @@ def plot_tsne_individual(x_plot, y_plot, order=None, title="", n_instance=1401):
     plt.ylabel("T-SNE dim 2", fontsize=14)
     plt.savefig("fig/tsne_individual/" + title + ".png", bbox_inches="tight")
     print("fig/tsne_individual/" + title + ".png")
-
-
-def plot_melspectrogram(
-    audio,
-    title="",
-    sample_rate=16000,
-    n_mels=64,
-    f_min=50,
-    f_max=2000,
-    nfft=1024,
-    hop=512,
-):
-    S = librosa.feature.melspectrogram(
-        y=audio,
-        sr=sample_rate,
-        n_mels=n_mels,
-        fmin=f_min,
-        fmax=f_max,
-        n_fft=nfft,
-        hop_length=hop,
-    )
-    S_dB = librosa.power_to_db(S, ref=np.max)
-
-    fig, ax = plt.subplots(figsize=(10, 4))
-    img = librosa.display.specshow(
-        S_dB, x_axis="time", y_axis="mel", sr=sample_rate, fmin=f_min, fmax=f_max, ax=ax
-    )
-    fig.colorbar(img, ax=ax, format="%+2.0f dB")
-    if title == "":
-        title = str(time.time())
-    ax.set(title="Mel-frequency spectrogram " + title)
-    plt.savefig("fig/spectrogram/" + title + ".png")
-    plt.clf()
-
-
-def get_weighted_loss_icbhi():
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    class_nums = [16, 399]  # training class distribution
-    weights = torch.tensor(class_nums, dtype=torch.float32)
-    weights = 1.0 / (weights / weights.sum())
-    weights /= weights.sum()
-    loss_fun = nn.CrossEntropyLoss(weight=weights.to(device))
-    return loss_fun
-
-
-def get_weighted_loss_icbhidisease():
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    class_nums = [2063, 1215, 501, 363]  # training class distribution
-    weights = torch.tensor(class_nums, dtype=torch.float32)
-    weights = 1.0 / (weights / weights.sum())
-    weights /= weights.sum()
-    loss_fun = nn.CrossEntropyLoss(weight=weights.to(device))
-    return loss_fun
 
 
 def downsample_balanced_dataset(x_train, y_train):
@@ -819,37 +738,3 @@ def get_split_signal_fbank_pad(
             # print( waveform.shape[1]/sample_rate, fbank.shape)
             audio_image.append(fbank)
     return audio_image
-    """Normalization of Input Batch.
-
-    Note:
-        Unlike other blocks, use this with *batch inputs*.
-
-    Args:
-        axis: Axis setting used to calculate mean/variance.
-    """
-
-    def __init__(self, axis=[0, 2, 3]):
-        super().__init__()
-        self.axis = axis
-
-    def forward(self, X: torch.Tensor) -> torch.Tensor:
-        _mean = X.mean(dim=self.axis, keepdims=True)
-        _std = torch.clamp(
-            X.std(dim=self.axis, keepdims=True), torch.finfo().eps, torch.finfo().max
-        )
-        return (X - _mean) / _std
-
-    def __repr__(self):
-        format_string = self.__class__.__name__ + f"(axis={self.axis})"
-        return format_string
-
-
-def natural_sort_key(text):
-    """
-    Generate a key for natural sorting (handles numbers correctly).
-    e.g., file1.wav, file2.wav, file10.wav instead of file1.wav, file10.wav, file2.wav
-    """
-    return [
-        int(part) if part.isdigit() else part.lower()
-        for part in re.split(r"(\d+)", str(text))
-    ]

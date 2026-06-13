@@ -13,9 +13,7 @@ df = pd.read_csv(
 # Create output directory
 output_dir = os.path.join("cks", "logs", "combined", experiment_name, "plots")
 
-if not output_dir:
-    output_dir = "."
-elif not os.path.exists(output_dir):
+if not os.path.exists(output_dir):
     os.makedirs(output_dir)
 
 # Set up the figure style
