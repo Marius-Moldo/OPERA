@@ -609,3 +609,132 @@ def train_test_split_from_list(X, Y, train_test):
             X_test.append(X[i])
             y_test.append(Y[i])
     return np.array(X_train), np.array(X_test), np.array(y_train), np.array(y_test)
+
+
+def plot_tsne_individual(x_plot, y_plot, order=None, title="", n_instance=1401):
+    from sklearn.manifold import TSNE
+
+    # import colorcet as cc
+    sns.set_theme()
+    # palette = sns.color_palette(cc.glasbey, n_colors=n_instance)
+    # print("using cc palette")
+    palette = sns.color_palette("hls", 10)
+    tsne = TSNE(n_components=2, verbose=1, perplexity=40, n_iter=300)
+    tsne_results = tsne.fit_transform(x_plot)
+    plt.figure(figsize=(4, 4))
+    sns.scatterplot(
+        x=tsne_results[:, 0],
+        y=tsne_results[:, 1],
+        hue=y_plot,
+        hue_order=order,
+        palette=palette,
+        # legend="auto",
+        # legend="brief",
+        legend=False,
+        alpha=0.85,
+        s=50,
+    )
+    if title == "":
+        title = str(time.time())
+
+    plt.xticks(visible=False)
+    plt.yticks(visible=False)
+    plt.xlabel("T-SNE dim 1", fontsize=14)
+    plt.ylabel("T-SNE dim 2", fontsize=14)
+    plt.savefig("fig/tsne_individual/" + title + ".png", bbox_inches="tight")
+    print("fig/tsne_individual/" + title + ".png")
+
+
+def downsample_balanced_dataset(x_train, y_train):
+    # Find unique classes in y_train
+    classes = np.unique(y_train)
+
+    # Find the minimum number of samples among classes
+    min_samples = min(np.bincount(y_train))
+
+    # Initialize lists to store downsampled data
+    x_downsampled = []
+    y_downsampled = []
+
+    # Downsample each class
+    for c in classes:
+        # Get indices of samples belonging to class c
+        indices = np.where(y_train == c)[0]
+
+        # Randomly select min_samples samples
+        selected_indices = np.random.choice(indices, min_samples, replace=False)
+
+        # Add selected samples to downsampled data
+        x_downsampled.extend(x_train[selected_indices])
+        y_downsampled.extend(y_train[selected_indices])
+
+    # Convert lists to numpy arrays
+    x_downsampled = np.array(x_downsampled)
+    y_downsampled = np.array(y_downsampled)
+
+    return x_downsampled, y_downsampled
+
+
+def get_split_signal_fbank_pad(
+    data_folder,
+    filename,
+    input_sec=8,
+    sample_rate=16000,
+    butterworth_filter=None,
+    spectrogram=False,
+    trim_tail=False,
+):
+    from src.util import split_pad_sample
+
+    data, rate = librosa.load(
+        os.path.join(data_folder, filename + ".wav"), sr=sample_rate
+    )
+
+    if butterworth_filter:
+        # butter bandpass filter
+        data = _butter_bandpass_filter(
+            lowcut=200, highcut=1800, fs=sample_rate, order=butterworth_filter
+        )
+
+    # Trim leading and trailing silence from an audio signal.
+    FRAME_LEN = int(sample_rate / 10)  #
+    HOP = int(FRAME_LEN / 2)  # 50% overlap, meaning 5ms hop length
+    yt, index = librosa.effects.trim(data, frame_length=FRAME_LEN, hop_length=HOP)
+
+    drop_last = False
+    if trim_tail:
+        drop_last = decide_droplast(yt, rate, input_sec)
+
+    audio_chunks = [res[0] for res in split_pad_sample([yt, 0, 0], input_sec, rate)]
+
+    if drop_last:
+        audio_chunks.pop()
+
+    if not spectrogram:
+        return audio_chunks
+
+    # directly process to spectrogram
+    audio_image = []
+    for waveform in audio_chunks:
+        # image = pre_process_audio_mel_t(audio.squeeze(), f_max=8000)
+
+        waveform = waveform - waveform.mean()
+        waveform = torch.tensor(waveform).reshape([1, -1])
+        # print(waveform.shape)
+        if waveform.shape[1] > 400:
+            fbank = torchaudio.compliance.kaldi.fbank(
+                waveform,
+                channel=0,
+                frame_length=25,
+                htk_compat=True,
+                sample_frequency=sample_rate,
+                use_energy=False,
+                window_type="hanning",
+                num_mel_bins=128,
+                dither=0.0,
+                frame_shift=10,
+            )
+
+            # print( waveform.shape[1]/sample_rate, fbank.shape)
+            audio_image.append(fbank)
+    return audio_image
