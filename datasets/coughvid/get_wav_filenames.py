@@ -4,10 +4,10 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # datasets/
 from dataset_filename_utils import replace_in_filenames
 
-# Point the covidUK filenames at the SVD-smoothed spectrograms
+# Point the coughvid spectrogram filenames at the segmented wav files
 replace_in_filenames(
-    "datasets/covidUK/entire_cough_filenames.npy",
+    "datasets/coughvid/entire_spec_filenames.npy",
     "entire_spec_npy",
-    "entire_spec_npy_smooth",
-    "datasets/covidUK/entire_cough_filenames_smooth.npy",
+    "wav_segmented",
+    "datasets/coughvid/entire_cough_filenames_segmented.npy",
 )
