@@ -4,7 +4,7 @@ for p in $PERCENTAGES; do
   echo "--- Starting training with data_percentage: $p ---"
 
   python -u src/pretrain/cola_training.py \
-    --title "CoughPhase-CLR-${percentage_int}pct" \
+    --title "CoughSound-CLR-${percentage_int}pct" \
     --covidUKcough True \
     --coughvid True \
     --encoder efficientnet \
