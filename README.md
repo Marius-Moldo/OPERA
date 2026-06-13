@@ -1,32 +1,57 @@
 <div align="center">
-  <a href="https://github.com/evelyn0414/OPERA"> <img width="200px" height="200px" src="https://github.com/evelyn0414/OPERA/assets/61721952/6d17e3e7-5b3f-4e0b-991a-1cc02c5434dc"></a>
+  <h1>CoughPhase-CLR</h1>
+  <p><em>An acoustics-informed foundation model for coughing sound classification</em></p>
 </div>
 
-
 -----------------------------------------
-[![arXiv](https://img.shields.io/badge/arXiv-2406.16148-b31b1b.svg)](https://arxiv.org/abs/2406.16148)
-[![Hugging Face](https://img.shields.io/badge/Hugging%20Face-Model-yellow?logo=huggingface&logoColor=yellow)](https://huggingface.co/evelyn0414/OPERA)
 [![Language: Python](https://img.shields.io/badge/language-Python%203.10%2B-green?logo=python&logoColor=green)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Built on: OPERA](https://img.shields.io/badge/built%20on-OPERA-blue.svg)](https://github.com/evelyn0414/OPERA)
 
+This repository contains the code for **CoughPhase-CLR**, a self-supervised learning
+framework that leverages the *physiological phases of a cough* for robust representation
+learning. Unlike generic contrastive frameworks that build positive pairs through random
+cropping, CoughPhase-CLR constructs positive pairs from the distinct acoustic phases of a
+single cough event. The model is pretrained on ~40 hours of public cough audio and
+evaluated on five downstream tasks spanning COVID-19 detection, COPD state classification,
+gender, and smoker-status prediction.
 
+This is the code release for the paper *"CoughPhase-CLR: Designing an acoustics-informed
+foundation model for coughing sound classification"* (Moldovan et al., Chair of Health
+Informatics, TUM). Key findings: cough-specific phase-aware pretraining consistently
+outperforms standard random cropping when pretraining on coughs, and is more
+**data-efficient**; however, COPD-state classification from coughs remains hard (best 57 %
+UAR vs. 84 % from speech).
 
-This is the official code release for **OPERA**: **OPE**n **R**espiratory **A**coustic foundation models.
+> **Built on OPERA.** This work builds on and reuses the pretraining and benchmarking
+> scaffolding of [OPERA](https://github.com/evelyn0414/OPERA) (Zhang et al., 2024)
 
-OPERA is an OPEn Respiratory Acoustic foundation model pretraining and benchmarking system. We curate large-scale respiratory audio datasets (136K samples, 440 hours), pretrain three pioneering foundation models, and build a benchmark consisting of 19 downstream respiratory health tasks for evaluation. Our pretrained models demonstrate superior performance (against existing acoustic models pretrained with general audio on 16 out of 19 tasks) and generalizability (to unseen datasets and new respiratory audio modalities). This highlights the great promise of respiratory acoustic foundation models and encourages more studies using OPERA as an open resource to accelerate research on respiratory audio for health.
+## Method
 
-![framework](https://github.com/evelyn0414/OPERA/assets/61721952/30c6ed72-1720-4c2e-9351-79d48f03d3a4)
+CoughPhase-CLR shares OPERA-CE's architecture (an **EfficientNet-B0** encoder trained with
+a contrastive objective) but differs in how contrastive views are constructed:
 
+- Each cough is split into **two segments**: the **explosive phase** (first segment) and
+  the combined **intermediate + voiced phases** (second segment). The split point is found
+  by detecting the largest energy peak in the first 60 % of the cough and cutting ~20 ms
+  after it.
+- The two segments of the *same* cough form a **positive pair**; segments from other coughs
+  in the batch are negatives.
+- Mel spectrograms (64 bins, window 1024, hop 512) are computed per segment, with
+  SpecAugment applied during pretraining. Batch size 256.
 
-To reproduce the results in our [paper](), develop your own foundation models, or deploy our pretrained models for downstream healthcare applications, please follow the guideline below.
-
+For comparison, **OPERA-CE-Cough** is OPERA-CE re-pretrained on the *same* cough data but
+using the original random-crop view construction. This isolates the effect of the
+phase-aware contrastive task.
 
 ## Installation
 
-The environment with all the needed dependeciescan be easily created on a Linux machine by running:
+The environment with all the needed dependencies can be created on a Linux machine by
+running:
+
 ```
-git clone https://github.com/evelyn0414/OPERA.git
-cd ./OPERA
+git clone <your-repo-url>/CoughPhase-CLR.git
+cd ./CoughPhase-CLR
 
 conda env create --file environment.yml
 sh ./prepare_env.sh
@@ -37,104 +62,137 @@ conda activate audio
 sh ./prepare_code.sh
 ```
 
-*After installation, next time to run the code, you only need to acivate the audio env by `conda activate audio`.
+This sets up a Python 3.10 environment (PyTorch 2.3, torchaudio, librosa, transformers,
+PyTorch Lightning, timm). `prepare_env.sh` adds the project to `PYTHONPATH`; `prepare_code.sh`
+patches the custom `swin_transformer.py` into the timm install. Afterwards you only need
+`conda activate audio` to run the code.
 
+## Datasets
 
+CoughPhase-CLR is **pretrained** on two openly available cough datasets and **evaluated**
+on four datasets (three public + one private).
 
-## Preparing data
+| Dataset | Used for | Source | Access | License |
+| ------- | -------- | ------ | ------ | ------- |
+| UK COVID-19 | pretrain + eval | UKHSA / Alan Turing Inst. | [zenodo.org/records/10043978](https://zenodo.org/records/10043978) | OGL 3.0 |
+| COUGHVID | pretrain + eval | EPFL | [zenodo.org/records/4048312](https://zenodo.org/records/4048312) | CC BY 4.0 |
+| Coswara | eval | IISc | [github.com/iiscleap/Coswara-Data](https://github.com/iiscleap/Coswara-Data) | CC BY 4.0 |
+| COPD-DE | eval | Univ. Hospital Augsburg | private — not publicly available | — |
 
-| Dataset                                  | Source | Access                                                       | License        |
-| ---------------------------------------- | ------ | ------------------------------------------------------------ | -------------- |
-| UK COVID-19      | IC     | [https://zenodo.org/records/10043978](https://zenodo.org/records/10043978) | OGL 3.0        |
-| COVID-19 Sounds      | UoC    | [https://covid-19-sounds.org/blog/neurips_dataset](https://covid-19-sounds.org/blog/neurips_dataset) | Custom license |
-| CoughVID      | EPFL   | [https://zenodo.org/records/4048312](https://zenodo.org/records/4048312) | CC BY 4.0      |
-| ICBHI                | *      | [https://bhichallenge.med.auth.gr](https://bhichallenge.med.auth.gr) | CC0            |
-| HF Lung    | *      | [https://gitlab.com/techsupportHF/HF_Lung_V1](https://gitlab.com/techsupportHF/HF_Lung_V1) | CC BY-NC 4.0   |
-|                                          |        | [https://gitlab.com/techsupportHF/HF_Lung_V1_IP](https://gitlab.com/techsupportHF/HF_Lung_V1_IP) |                |
-| Coswara   | IISc   | [https://github.com/iiscleap/Coswara-Data](https://github.com/iiscleap/Coswara-Data) | CC BY 4.0      |
-| KAUH           | KAUH   | [https://data.mendeley.com/datasets/jwyy9np4gv/3](https://data.mendeley.com/datasets/jwyy9np4gv/3) | CC BY 4.0      |
-| Respiratory@TR | ITU    | [https://data.mendeley.com/datasets/p9z4h98s6j/1](https://data.mendeley.com/datasets/p9z4h98s6j/1) | CC BY 4.0      |
-| SSBPR              | WHU    | [https://github.com/xiaoli1996/SSBPR](https://github.com/xiaoli1996/SSBPR) | CC BY 4.0      |
-| MMlung               | UoS    | [https://github.com/MohammedMosuily/mmlung](https://github.com/MohammedMosuily/mmlung) | Custom license |
-| NoseMic      | UoC    | [https://github.com/evelyn0414/OPERA/tree/main/datasets/nosemic](https://github.com/evelyn0414/OPERA/tree/main/datasets/nosemic)                                                           | Custom license |
+*COVID-19 Sounds (used by OPERA for pretraining) was not available for this work due to
+licensing. COPD-DE is a private clinical dataset of forced-cough recordings from COPD
+patients (exacerbation vs. stable state) and is not redistributed here.*
 
-*ICBHI and HF Lung datasets come from multiple sources. COVID-19 Sounds, SSBPR and MMLung  are available upon request, while other data can be downloaded using the above url. Custom license is detailed in the DTA (data transfer agreement).
+## Data preparation
 
-We provided some curated datasets which can be downloaded from the [Google drive]() (replace the `datasets` folder). 
+Pretraining uses a **segmented cough** pipeline: long recordings are resampled to 16 kHz,
+individual coughs are extracted by energy-based onset/offset detection, each cough is split
+into its two acoustic phases, and per-segment Mel spectrograms are saved.
 
+Relevant scripts:
 
-## Pretraining foudation models using OPERA framework
+- `src/segment_cough.py`, `src/split_cough_final.py` — cough extraction and two-phase split.
+- `src/pretrain/prepare_data/coughvid_pressl_segmented.py` — prepare segmented COUGHVID.
+- `src/pretrain/prepare_data/covidUK_pressl_segmented.py` — prepare segmented UK COVID-19.
+- `datasets/dataset_filename_utils.py` — shared helpers for building/transforming the
+  `.npy` filename lists each dataset uses.
 
-Example training can be found in  `cola_pretraining.py` and `mae_pretraining.py`.
+## Pretraining CoughPhase-CLR
 
-Start by running 
+The phase-aware model is trained with `src/pretrain/cola_training.py`:
+
+```
+python -u src/pretrain/cola_training.py \
+  --title "CoughPhase-CLR-100pct" \
+  --covidUKcough True --coughvid True \
+  --encoder efficientnet \
+  --preprocessing segmented \
+  --strategy phase \
+  --data_percentage 1.0 \
+  --specaugment True \
+  --target_steps 20000
+```
+
+Key flags:
+
+- `--strategy phase` — phase-aware positive pairs (CoughPhase-CLR). The default
+  `--strategy crop` reproduces the random-crop **OPERA-CE-Cough** baseline.
+- `--preprocessing segmented` — use the segmented per-cough spectrograms.
+- `--data_percentage` — fraction of pretraining data (for the data-efficiency study).
+- `--target_steps`, `--specaugment`, `--encoder`, `--batch_size` — training controls.
+
+To reproduce the full **data-efficiency sweep** (100/80/60/40/20 %) for both CoughPhase-CLR
+and OPERA-CE-Cough:
 
 ```
 sh scripts/multiple_pretrain.sh
 ```
 
-## Using OPERA models
+Trained checkpoints are written under `cks/model/combined/coughvid_covidUKcough/`.
 
-The pretrained weights are available at:
-__Zenodo__ or <a href="https://huggingface.co/evelyn0414/OPERA/tree/main" target="_blank"> HuggingFace </a>
+## Running the benchmark
 
+CoughPhase-CLR is evaluated against baselines on five downstream tasks using a
+**linear-probing** protocol (frozen encoder, linear head, AUROC over 5 seeds; UAR with
+4-fold patient-level CV for COPD-DE). The benchmark scripts share
+`scripts/lib/benchmark_common.sh`, which runs a feature-extraction phase followed by
+`src/benchmark/linear_eval.py`.
 
-our pretrained model checkpoints:
-[OPERA-CT](https://huggingface.co/evelyn0414/OPERA/resolve/main/encoder-operaCT.ckpt?download=true), [OPERA-CE](https://huggingface.co/evelyn0414/OPERA/resolve/main/encoder-operaCE.ckpt?download=true), [OPERA-GT](https://huggingface.co/evelyn0414/OPERA/resolve/main/encoder-operaGT.ckpt?download=true).
+| Task | Dataset | `linear_eval` task | Script |
+| ---- | ------- | ------------------ | ------ |
+| T1 | COUGHVID — COVID / non-COVID | `coughvidcovid` | `linear_eval --task coughvidcovid` (see `scripts/eval_all.sh`) |
+| T2 | COUGHVID — female / male | `coughvidsex` | `scripts/coughvid_benchmark.sh` |
+| T3 | COPD-DE — exacerbation / stable | `customCoughCOPD` | `scripts/custom_copd_benchmark.sh` |
+| T4 | Coswara — smoker / non-smoker | `coswarasmoker` | `scripts/coswara_benchmark.sh` |
+| T5 | Coswara — female / male | `coswarasex` | `scripts/data_efficiency_benchmark.sh` |
 
-They will be audomatically downloaded before feature extraction.
+`scripts/data_efficiency_benchmark.sh` evaluates the 20–100 % checkpoints (eval-only; assumes
+features are already extracted). For the public COPD dataset and full fine-tuning baselines,
+see `scripts/copd_eval.sh` and `scripts/finetune_eval.sh`.
 
-Run example of Task 10:
-```
-sh datasets/KAUH/download_data.sh
-sh scripts/kauh_eval.sh > cks/logs/Test_Task10_results.log
-```
+## Using a trained model
 
-Run example of Task 11:
-```
-sh datasets/copd/download_data.sh
-sh scripts/copd_eval.sh > cks/logs/Test_Task11_results.log
-```
-The log is included under 'cks/logs/' for reference. The results for all tasks are summarised in Table 4 and 5.  
+Feature extraction reuses OPERA's `extract_opera_feature`. The OPERA encoders
+(`operaCT`, `operaCE`, `operaGT`) auto-download from HuggingFace on first use; locally
+trained checkpoints (including CoughPhase-CLR) live under `cks/model/`.
 
-Example for extracting feature using your own data:
 ```python
+import numpy as np
 from src.benchmark.model_util import extract_opera_feature
 
 # array of filenames
 sound_dir_loc = np.load(feature_dir + "sound_dir_loc.npy")
-opera_features = extract_opera_feature(sound_dir_loc,  pretrain="operaCT", input_sec=8, dim=768)
-np.save(feature_dir + "operaCT_feature.npy", np.array(opera_features))
-```
-    
-
-## Running the benchmark
-
- ```
-sh scripts/benchmark.sh
+opera_features = extract_opera_feature(sound_dir_loc, pretrain="operaCE", input_sec=8, dim=1280)
+np.save(feature_dir + "operaCE_feature.npy", np.array(opera_features))
 ```
 
-## Understanding the model 
+Encoder dimensions: `operaCE` / CoughPhase-CLR (EfficientNet-B0) → 1280, `operaCT` → 768,
+`operaGT` → 384.
 
-Run `res_analysis/saliency_map.py` for an analysis of the model using saliency maps.
+## Repository layout
 
-|![Slide1](https://github.com/user-attachments/assets/ce83bdd8-943d-4dce-9bb1-1b2431cf9afd) | ![Slide2](https://github.com/user-attachments/assets/4689faad-d9ba-49ed-8248-561d64213362)|
-|-------|-----------|
-|![Slide3](https://github.com/user-attachments/assets/dbb9e910-05a8-4aaa-968e-8ffa79bf5869)|![Slide4](https://github.com/user-attachments/assets/19d31c45-27da-44f1-9974-06a213c03790)|
-|![Slide5](https://github.com/user-attachments/assets/dcf72afd-07ed-4f80-b24a-96596a5f6136)|![Slide6](https://github.com/user-attachments/assets/89e8b4f4-68cb-4d37-8eed-0ca9843d17e7) |
+- `src/model/` — model definitions (EfficientNet/COLA, HT-SAT, MAE/ViT).
+- `src/pretrain/` — pretraining entry points (`cola_training.py`, `mae_training.py`) and
+  `prepare_data/` preprocessing.
+- `src/benchmark/` — feature extraction (`model_util.py`), linear evaluation
+  (`linear_eval.py`), per-dataset `processing/`, and baselines.
+- `scripts/` — pretraining and benchmark scripts (+ shared `lib/benchmark_common.sh`).
+- `datasets/` — datasets and dataset-specific preprocessing utilities.
+- `cks/` — model checkpoints and logs.
+- `res_analysis/` — result analysis and visualization.
 
 ## Citation
 
-If you use OPERA, please consider citing:
+If you use this code, please cite **CoughPhase-CLR** and the **OPERA** framework it builds on.
 
 ```
-@misc{zhang2024openrespiratoryacousticfoundation,
-      title={Towards Open Respiratory Acoustic Foundation Models: Pretraining and Benchmarking}, 
-      author={Yuwei Zhang and Tong Xia and Jing Han and Yu Wu and Georgios Rizos and Yang Liu and Mohammed Mosuily and Jagmohan Chauhan and Cecilia Mascolo},
-      year={2024},
-      eprint={2406.16148},
-      archivePrefix={arXiv},
-      primaryClass={cs.SD},
-      url={https://arxiv.org/abs/2406.16148}, 
+@misc{moldovan2025coughphaseclr,
+      title={CoughPhase-CLR: Designing an acoustics-informed foundation model for coughing sound classification},
+      author={Marius Moldovan and Anton Batliner and Thomas M. Berghaus and Bj\"orn W. Schuller and Andreas Triantafyllopoulos},
+      year={2025},
 }
 ```
+
+## License
+
+Released under the MIT License
