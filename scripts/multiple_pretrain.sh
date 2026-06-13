@@ -12,8 +12,7 @@ for p in $PERCENTAGES; do
     --strategy phase \
     --data_percentage "$p" \
     --specaugment True \
-    --batch_size "$bs" \
-    --target_steps 20000 \
+    --target_steps 20000
 
   echo "--- Finished training for data_percentage: $p ---"
   echo
@@ -33,7 +32,7 @@ done
 
 
  python -u src/pretrain/mae_training.py --data multiple\
-         --covidbreath True\<
+         --covidbreath True\
          --covidcough True\
          --icbhicycle True\
          --coughvid True\

@@ -19,7 +19,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import torch.nn as nn
 import time
-import re
 
 
 def crop_first(data, crop_size=128):

@@ -1,12 +1,9 @@
 import numpy as np
 import librosa
-import matplotlib.pyplot as plt
 import os
-import sys
 import glob
 import soundfile as sf
 from tqdm import tqdm
-from torchvision.datasets import folder
 
 
 # from https://github.com/bagustris/detect-segment-cough/blob/master/src/segmentation.py
@@ -95,23 +92,6 @@ def compute_SNR(x, fs):
         else 20 * np.log10(RMS_signal / RMS_noise)
     )
     return SNR
-
-
-def segment_and_plot_coughs(files, output_dir):
-    os.makedirs(output_dir, exist_ok=True)
-
-    for file in files:
-        print(f"Processing {file}")
-        x, fs = librosa.load(file, sr=None)
-        plt.plot(x)
-        plt.show()
-
-        # segments cough
-        cough_segments, cough_mask = segment_cough(x, fs, cough_padding=0.0)
-        plt.plot(x)
-        plt.plot(cough_mask)
-        plt.savefig(os.path.join(output_dir, f"{os.path.basename(file)}.png"))
-        plt.close()
 
 
 def segment_and_save_coughs(files, output_dir=None):

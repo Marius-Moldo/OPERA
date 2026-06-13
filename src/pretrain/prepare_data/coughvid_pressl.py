@@ -51,9 +51,6 @@ def preprocess_spectrogram_SSL(modality="breath", input_sec=8):
     )
 
 
-# finished preprocessing cough: valid data 7179 ; invalid data 327
-
-
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()

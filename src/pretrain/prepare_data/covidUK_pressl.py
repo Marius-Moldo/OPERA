@@ -10,7 +10,6 @@ import os
 def preprocess_spectrogram_SSL(modality="modality", input_sec=2):
 
     path = "datasets/covidUK/"
-    # path = ''
 
     uids = np.load(path + modality + "_training_files.npy", allow_pickle=True).tolist()
     uids = [item for sublist in uids for item in sublist]
@@ -28,7 +27,6 @@ def preprocess_spectrogram_SSL(modality="modality", input_sec=2):
 
     # use metadata as outer loop to enable quality check
     for file in tqdm(uids):
-        # print(file)
         userID = file.split(".")[0]
         if os.path.exists(path + "audio/" + file):
             data = get_entire_signal_librosa(
@@ -39,13 +37,13 @@ def preprocess_spectrogram_SSL(modality="modality", input_sec=2):
                 invalid_data += 1
                 continue
 
-        # saving to individual npy files
-        np.save(path + "entire_spec_npy/" + userID + ".npy", data)
-        filename_list.append("datasets/covidUK/entire_spec_npy/" + userID)
+            # saving to individual npy files
+            np.save(path + "entire_spec_npy/" + userID + ".npy", data)
+            filename_list.append("datasets/covidUK/entire_spec_npy/" + userID)
 
     np.save(path + "entire_" + modality + "_filenames.npy", filename_list)
     print(
-        "finished preprocessing breathing: valid data",
+        "finished preprocessing cough: valid data",
         len(filename_list),
         "; invalid data",
         invalid_data,

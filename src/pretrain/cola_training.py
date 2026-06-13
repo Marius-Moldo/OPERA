@@ -12,20 +12,12 @@ import torch
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import CSVLogger
 from sklearn.model_selection import train_test_split
-from tensorflow.python.keras.metrics import FalseNegatives
 from torch.utils.data import DataLoader
 from lightning.pytorch.utilities import CombinedLoader
-from transformers.utils.doc import PT_RETURN_INTRODUCTION
 import random
 from src.util import random_crop, random_mask, random_multiply
 from src.model.models_cola import Cola, ColaMD
-import matplotlib.pyplot as plt
-from scipy import signal
-import librosa
 import math
-
-# torch.set_float32_matmul_precision('high')  # or 'high' for even more performance
-import sys
 
 
 def combine_dataloaders(dataloaders, train=False):
@@ -358,20 +350,6 @@ def train_multiple_data(
             else:
                 filenames = list(np.load("datasets/covidUK/entire_cough_filenames.npy"))
 
-        # # plotting data length distribution
-        # data_lengths = []
-        # for file_path in filenames:
-        #     data = np.load(file_path + ".npy")
-        #     data_lengths.append(data.shape[0])
-
-        # import matplotlib.pyplot as plt
-        # plt.hist(data_lengths, bins=20, color='skyblue', edgecolor='black')
-        # plt.xlabel('Data Length')
-        # plt.ylabel('Frequency')
-        # plt.title('Distribution of Data Length ' + dt)
-        # plt.grid(True)
-        # plt.savefig("fig/training/{}_length_hist.png".format(dt))
-        # plt.clf()
         random.seed(42)
 
         if strategy == "phase":

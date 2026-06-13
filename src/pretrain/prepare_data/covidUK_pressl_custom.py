@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import argparse
 import numpy as np
-from openpyxl.styles.builtins import output
 from tqdm import tqdm
 from src.util import get_entire_signal_librosa
 import os
@@ -14,12 +13,10 @@ def preprocess_spectrogram_SSL(
 ):
 
     path = "datasets/covidUK/"
-    # path = ''
 
     output_dir = f"datasets/covidUK/entire_spec_npy{form}/"
     os.makedirs(output_dir, exist_ok=True)
 
-    # filenames = np.load(path + "entire_" + modality + "_filenames.npy")
     filenames = glob(path + f"audio{form}/*.wav")
 
     filenames = [f"{os.path.basename(f)}" for f in filenames]
@@ -32,7 +29,6 @@ def preprocess_spectrogram_SSL(
 
     # use metadata as outer loop to enable quality check
     for file in tqdm(filenames):
-        # print(file)
         userID = file.split(".")[0]
         if os.path.exists(path + f"audio{form}/" + file):
             data = get_entire_signal_librosa(
@@ -49,13 +45,13 @@ def preprocess_spectrogram_SSL(
                 invalid_data += 1
                 continue
 
-        # saving to individual npy files
-        np.save(output_dir + userID + ".npy", data)
-        filename_list.append(f"datasets/covidUK/entire_spec_npy{form}/" + userID)
+            # saving to individual npy files
+            np.save(output_dir + userID + ".npy", data)
+            filename_list.append(f"datasets/covidUK/entire_spec_npy{form}/" + userID)
 
     np.save(path + "entire_" + modality + "_filenames_segmented.npy", filename_list)
     print(
-        "finished preprocessing breathing: valid data",
+        "finished preprocessing cough: valid data",
         len(filename_list),
         "; invalid data",
         invalid_data,

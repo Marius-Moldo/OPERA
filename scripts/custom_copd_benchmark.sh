@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-PRETRAINS=(CoughPhase-CLR-20pct
+PRETRAINS=(
   "cks/model/combined/coughvid_covidUKcough/CoughPhase-CLR-20pct-epoch=319--valid_acc=0.27-valid_loss=3.2871.ckpt"
   "cks/model/combined/coughvid_covidUKcough/CoughPhase-CLR-40pct-epoch=159--valid_acc=0.35-valid_loss=2.9020.ckpt"
   "cks/model/combined/coughvid_covidUKcough/CoughPhase-CLR-60pct-epoch=99--valid_acc=0.35-valid_loss=2.8306.ckpt"
@@ -17,7 +17,7 @@ OUTPUT_NAMES=(
   "CoughPhase-CLR"
 )
 
-TASK="coswarasex"
+TASK="customCoughCOPD"
 
 STAMP="$(date +%Y%m%d_%H%M%S)"
 LOGDIR="logs/${STAMP}"
