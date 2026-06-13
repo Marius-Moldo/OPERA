@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+source "$(dirname "$0")/lib/benchmark_common.sh"
 
 PRETRAINS=(
   "cks/model/combined/coughvid_covidUKcough/CoughPhase-CLR-20pct-epoch=319--valid_acc=0.27-valid_loss=3.2871.ckpt"
@@ -13,7 +14,6 @@ PRETRAINS=(
   "cks/model/combined/coughvid_covidUKcough/OPERA-CE-Cough-epoch=249--valid_acc=0.74-valid_loss=1.2390.ckpt"
 )
 
-
 OUTPUT_NAMES=(
   "CoughPhase-CLR-20pct"
   "CoughPhase-CLR-40pct"
@@ -27,41 +27,7 @@ OUTPUT_NAMES=(
   "OPERA-CE-Cough"
 )
 
-TASK="coughvidsex"
-LABEL="gender"
+PROC_EXTRA_ARGS=(--label gender)
 
-STAMP="$(date +%Y%m%d_%H%M%S)"
-LOGDIR="logs/${STAMP}"
-mkdir -p "${LOGDIR}"
-
-for i in "${!PRETRAINS[@]}"; do
-  PRE="${PRETRAINS[$i]}"
-  OUT="${OUTPUT_NAMES[$i]}"
-
-  echo "========================================"
-  echo "Running with --pretrain ${PRE}"
-  echo "Output file: ${OUT}"
-  echo "========================================"
-
-  python3 -m src.benchmark.processing.coughvid_processing \
-    --pretrain "${PRE}" \
-    --output_file_name "${OUT}" \
-    --label "${LABEL}" \
-    | tee "${LOGDIR}/${OUT}.log"
-done
-
-echo "Preprocessing done. Logs saved to: ${LOGDIR}"
-
-
-STAMP="$(date +%Y%m%d_%H%M%S)"
-LOGDIR="logs/${STAMP}"
-mkdir -p "${LOGDIR}"
-
-for PRE in "${OUTPUT_NAMES[@]}"; do
-  echo "========================================"
-  echo "Running with --pretrain ${PRE}"
-  echo "========================================"
-  python3 -m src.benchmark.linear_eval --pretrain "${PRE}" --task "${TASK}" | tee "${LOGDIR}/${PRE}.log"
-done
-
-echo "All runs complete. Logs saved to: ${LOGDIR}"
+run_preprocess_phase coughvid_processing
+run_eval_phase coughvidsex "${OUTPUT_NAMES[@]}"
