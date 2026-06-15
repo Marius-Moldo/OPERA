@@ -4,6 +4,7 @@
 </div>
 
 -----------------------------------------
+[![Model on HF](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Model-yellow)](https://huggingface.co/Marius-Moldo/CoughPhase-CLR)
 [![Language: Python](https://img.shields.io/badge/language-Python%203.10%2B-green?logo=python&logoColor=green)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Built on: OPERA](https://img.shields.io/badge/built%20on-OPERA-blue.svg)](https://github.com/evelyn0414/OPERA)
@@ -32,17 +33,19 @@ CoughPhase-CLR shares OPERA-CE's architecture (an **EfficientNet-B0** encoder tr
 a contrastive objective) but differs in how contrastive views are constructed:
 
 - Each cough is split into **two segments**: the **explosive phase** (first segment) and
-  the combined **intermediate + voiced phases** (second segment). The split point is found
-  by detecting the largest energy peak in the first 60 % of the cough and cutting ~20 ms
-  after it.
+  the combined **intermediate + voiced phases** (second segment).
 - The two segments of the *same* cough form a **positive pair**; segments from other coughs
   in the batch are negatives.
-- Mel spectrograms (64 bins, window 1024, hop 512) are computed per segment, with
-  SpecAugment applied during pretraining. Batch size 256.
+- Mel spectrograms are computed per segment, with
+  SpecAugment applied during pretraining.
 
 For comparison, **OPERA-CE-Cough** is OPERA-CE re-pretrained on the *same* cough data but
 using the original random-crop view construction. This isolates the effect of the
 phase-aware contrastive task.
+
+<div align="center">
+<img width=80% alt="CoughPhase-CLR" src="https://github.com/user-attachments/assets/13f98560-2736-46e1-8e8d-7470747e5b43" />
+</div>
 
 ## Installation
 
@@ -62,8 +65,7 @@ conda activate audio
 sh ./prepare_code.sh
 ```
 
-This sets up a Python 3.10 environment (PyTorch 2.3, torchaudio, librosa, transformers,
-PyTorch Lightning, timm). `prepare_env.sh` adds the project to `PYTHONPATH`; `prepare_code.sh`
+This sets up a Python 3.10 environment. `prepare_env.sh` adds the project to `PYTHONPATH`; `prepare_code.sh`
 patches the custom `swin_transformer.py` into the timm install. Afterwards you only need
 `conda activate audio` to run the code.
 
@@ -132,9 +134,7 @@ Trained checkpoints are written under `cks/model/combined/coughvid_covidUKcough/
 
 ## Running the benchmark
 
-CoughPhase-CLR is evaluated against baselines on five downstream tasks using a
-**linear-probing** protocol (frozen encoder, linear head, AUROC over 5 seeds; UAR with
-4-fold patient-level CV for COPD-DE). The benchmark scripts share
+CoughPhase-CLR is evaluated against baselines on five downstream tasks. The benchmark scripts share
 `scripts/lib/benchmark_common.sh`, which runs a feature-extraction phase followed by
 `src/benchmark/linear_eval.py`.
 
@@ -150,24 +150,6 @@ CoughPhase-CLR is evaluated against baselines on five downstream tasks using a
 features are already extracted). For the public COPD dataset and full fine-tuning baselines,
 see `scripts/copd_eval.sh` and `scripts/finetune_eval.sh`.
 
-## Using a trained model
-
-Feature extraction reuses OPERA's `extract_opera_feature`. The OPERA encoders
-(`operaCT`, `operaCE`, `operaGT`) auto-download from HuggingFace on first use; locally
-trained checkpoints (including CoughPhase-CLR) live under `cks/model/`.
-
-```python
-import numpy as np
-from src.benchmark.model_util import extract_opera_feature
-
-# array of filenames
-sound_dir_loc = np.load(feature_dir + "sound_dir_loc.npy")
-opera_features = extract_opera_feature(sound_dir_loc, pretrain="operaCE", input_sec=8, dim=1280)
-np.save(feature_dir + "operaCE_feature.npy", np.array(opera_features))
-```
-
-Encoder dimensions: `operaCE` / CoughPhase-CLR (EfficientNet-B0) → 1280, `operaCT` → 768,
-`operaGT` → 384.
 
 ## Repository layout
 
@@ -183,13 +165,13 @@ Encoder dimensions: `operaCE` / CoughPhase-CLR (EfficientNet-B0) → 1280, `oper
 
 ## Citation
 
-If you use this code, please cite **CoughPhase-CLR** and the **OPERA** framework it builds on.
+If you use this code, please cite:
 
 ```
 @misc{moldovan2025coughphaseclr,
       title={CoughPhase-CLR: Designing an acoustics-informed foundation model for coughing sound classification},
       author={Marius Moldovan and Anton Batliner and Thomas M. Berghaus and Bj\"orn W. Schuller and Andreas Triantafyllopoulos},
-      year={2025},
+      year={2026},
 }
 ```
 
